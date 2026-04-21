@@ -1,0 +1,49 @@
+{
+  "devices": [
+    {
+      "name": "默认设备",
+      "ip": "192.168.1.100",
+      "port": 502,
+      "unit_id": 254
+    }
+  ],
+  "lights": [
+    {
+      "name": "新灯",
+      "type": "lamp",
+      "scale": 3,
+      "device_ip": "192.168.1.100",
+      "channel": 0,
+      "x": -14.33,
+      "z": 20.41
+    },
+    {
+      "name": "新灯",
+      "type": "lamp",
+      "scale": 3,
+      "device_ip": "192.168.1.100",
+      "channel": 1,
+      "x": 15.86,
+      "z": 1.33
+    },
+    {
+      "name": "新打印机",
+      "type": "printer",
+      "scale": 1,
+      "device_ip": "192.168.1.100",
+      "channel": 2,
+      "x": -12.05,
+      "z": 37.35
+    }
+  ],
+  "layout": {
+    "building": {
+      "width": 60,
+      "depth": 40,
+      "wallH": 28,
+      "ridgeH": 50
+    },
+    "walls": [],
+    "zones": []
+  }
+}
