@@ -15,7 +15,7 @@ body {
 #app { display: flex; width: 100vw; height: 100vh; }
 
 /* 左侧 3D */
-#scene-wrap { flex: 1; position: relative; background: linear-gradient(180deg, #1a1a1f 0%, #0a0a0c 100%); }
+#scene-wrap { flex: 1; min-width: 0; position: relative; background: linear-gradient(180deg, #1a1a1f 0%, #0a0a0c 100%); }
 #scene { width: 100%; height: 100%; }
 
 /* 顶部信息条 */
@@ -51,14 +51,126 @@ body {
 
 /* 右侧面板 */
 #panel {
-  width: 440px; background: #000; border-left: 1px solid #1f1f22;
-  display: flex; flex-direction: column; overflow: hidden;
+  position: relative; width: 420px; min-width: 420px; max-width: 420px; flex: 0 0 420px;
+  background: #000; border-left: 1px solid #1f1f22;
+  display: flex; flex-direction: column; overflow: visible;
+  transition: width 0.24s ease, min-width 0.24s ease, max-width 0.24s ease, flex-basis 0.24s ease, border-color 0.18s ease;
+}
+#panel.panel-collapsed {
+  width: 108px; min-width: 108px; max-width: 108px; flex-basis: 108px;
+}
+#panel-toggle {
+  position: absolute; top: 26px; left: -22px; z-index: 20;
+  width: 44px; height: 88px; border-radius: 18px;
+  border: 1px solid #2c2c2e; background: rgba(17,17,19,0.96); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; box-shadow: 0 12px 28px rgba(0,0,0,0.34);
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+#panel-toggle:hover {
+  transform: translateX(-2px) scale(1.02);
+  border-color: rgba(48,209,88,0.6);
+  background: rgba(28,28,30,0.98);
+}
+#panel-toggle:focus-visible {
+  outline: 2px solid rgba(48,209,88,0.9);
+  outline-offset: 3px;
+}
+.panel-toggle-glyph {
+  font-size: 22px; font-weight: 700; line-height: 1;
+}
+.panel-main {
+  flex: 1; overflow-y: auto; overflow-x: hidden;
+  padding-bottom: 12px;
+}
+.panel-main::-webkit-scrollbar { width: 8px; }
+.panel-main::-webkit-scrollbar-thumb { background: #1f1f22; border-radius: 999px; }
+#panel.panel-collapsed .panel-main { display: none; }
+.panel-mini {
+  display: none; flex: 1; min-width: 0; align-items: center; gap: 10px;
+  padding: 106px 8px 14px;
+}
+#panel.panel-collapsed .panel-mini {
+  display: flex; flex-direction: column;
+}
+.panel-mini-label {
+  writing-mode: vertical-rl; transform: rotate(180deg);
+  font-size: 10px; font-weight: 700; letter-spacing: 2px; color: #48484a;
+}
+.panel-mini-chip {
+  width: 100%; min-width: 0; min-height: 74px; border-radius: 16px;
+  border: 1px solid #1f1f22; background: #111113; color: #fff;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  cursor: pointer; font-family: inherit; transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.panel-mini-chip:hover {
+  transform: translateY(-1px);
+  border-color: #2c2c2e;
+  background: #17171a;
+}
+.panel-mini-chip-kicker {
+  font-size: 9px; font-weight: 700; letter-spacing: 1.2px; color: #636366;
+}
+.panel-mini-chip-value {
+  font-size: 18px; font-weight: 700; line-height: 1;
+}
+.panel-mini-tip {
+  margin-top: auto; text-align: center; font-size: 10px; line-height: 1.45; color: #636366;
+  word-break: break-word;
 }
 .card {
   background: #111113; border: 1px solid #1f1f22;
   border-radius: 18px; margin: 10px 16px; padding: 16px;
 }
 .card:first-child { margin-top: 16px; }
+.collapsible-card { overflow: hidden; }
+.collapse-bar {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+}
+.collapse-head {
+  flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 2px 0; background: transparent; border: none; color: inherit; cursor: pointer;
+  text-align: left; font-family: inherit;
+}
+.collapse-head:focus-visible {
+  outline: 2px solid rgba(48,209,88,0.8);
+  outline-offset: 4px;
+  border-radius: 12px;
+}
+.collapse-copy { min-width: 0; }
+.collapse-title { margin-bottom: 2px; }
+.collapse-meta {
+  font-size: 11px; color: #8e8e93;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.collapse-chevron {
+  flex-shrink: 0; color: #636366; font-size: 14px; line-height: 1;
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+.collapsible-card.open .collapse-chevron {
+  color: #fff;
+  transform: rotate(180deg);
+}
+.collapse-body {
+  max-height: 0; opacity: 0; overflow: hidden; margin-top: 0;
+  transform: translateY(-4px); pointer-events: none;
+  transition: max-height 0.24s ease, opacity 0.18s ease, transform 0.18s ease, margin-top 0.18s ease;
+}
+.collapsible-card.open .collapse-body {
+  max-height: 1600px; opacity: 1; margin-top: 12px;
+  transform: translateY(0); pointer-events: auto;
+}
+.section-toolbar {
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  flex-wrap: wrap; flex-shrink: 0;
+}
+.section-toolbar-right {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.section-toolbar .btn { white-space: nowrap; }
+.collapsible-card:not(.open) .section-toolbar,
+.collapsible-card:not(.open) .section-toolbar-right,
+.collapsible-card:not(.open) > .collapse-bar > .btn { display: none; }
 
 .sec-label { font-size: 9px; font-weight: 700; letter-spacing: 1.5px; color: #48484a; margin-bottom: 8px; }
 .sec-head {
@@ -71,10 +183,34 @@ body {
 
 /* 头部卡片 */
 .head-card { display: flex; flex-direction: column; }
+.head-top {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+}
+.head-copy { min-width: 0; }
 .head-title { font-size: 22px; font-weight: 700; }
 .head-sub { font-size: 9px; letter-spacing: 1.5px; color: #48484a; margin-top: 2px; margin-bottom: 14px; }
 .head-row { display: flex; gap: 6px; }
 .head-row .btn { flex: 1; }
+.panel-visibility-btn {
+  flex-shrink: 0; min-width: 96px;
+  border: 1px solid #2c2c2e; background: #1a1a1d; color: #fff;
+  border-radius: 12px; padding: 8px 12px; font-size: 12px; font-weight: 700;
+  cursor: pointer; font-family: inherit; transition: all 0.15s ease;
+}
+.panel-visibility-btn:hover {
+  border-color: rgba(48,209,88,0.55);
+  background: #202024;
+}
+.panel-mini-open {
+  width: 100%; min-width: 0; min-height: 42px; border-radius: 14px;
+  border: 1px solid rgba(48,209,88,0.36); background: rgba(48,209,88,0.12); color: #fff;
+  font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit;
+  transition: all 0.15s ease;
+}
+.panel-mini-open:hover {
+  border-color: rgba(48,209,88,0.6);
+  background: rgba(48,209,88,0.18);
+}
 
 .btn {
   cursor: pointer; border: none; font-weight: 700; border-radius: 14px;
@@ -124,9 +260,10 @@ body {
 .card-foot .btn { flex: 1; padding: 8px; font-size: 12px; }
 
 /* 受控项列表 */
-.light-card { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.light-rows { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
-.light-rows::-webkit-scrollbar { width: 0; }
+.light-card { display: flex; flex-direction: column; }
+.light-rows { max-height: 38vh; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.light-rows::-webkit-scrollbar { width: 6px; }
+.light-rows::-webkit-scrollbar-thumb { background: #2c2c2e; border-radius: 999px; }
 .light-row {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 10px; border-radius: 10px; cursor: pointer;
@@ -225,7 +362,7 @@ body {
 .lc-list::-webkit-scrollbar { width: 6px; }
 .lc-list::-webkit-scrollbar-thumb { background: #2c2c2e; border-radius: 3px; }
 .lc-row {
-  display: flex; align-items: center; gap: 6px;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
   padding: 8px; background: #111113; border: 1px solid #1f1f22; border-radius: 10px;
 }
 .lc-row input, .lc-row select {
@@ -242,6 +379,25 @@ body {
   background: transparent; border: none; color: #ff453a; font-size: 18px;
   cursor: pointer; padding: 0 6px; width: 28px; flex-shrink: 0;
 }
+.lc-row-extra {
+  width: 100%; display: flex; align-items: center; gap: 8px; margin-top: 2px;
+}
+.lc-pos {
+  flex: 1; min-width: 0; font-size: 10px; line-height: 1.45; color: #8e8e93;
+}
+.lc-place {
+  height: 30px; padding: 0 10px; border-radius: 8px;
+  border: 1px solid #2c2c2e; background: #1c1c1e; color: #fff;
+  font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit;
+  transition: all 0.15s ease;
+}
+.lc-place:hover {
+  border-color: rgba(48,209,88,0.55);
+  background: #232327;
+}
+.lc-place.reset {
+  color: #8e8e93;
+}
 .lc-add {
   margin-top: 8px; padding: 10px; border-radius: 10px;
   background: transparent; border: 1px dashed #2c2c2e; color: #636366;
@@ -250,7 +406,7 @@ body {
 .lc-add:hover { color: #30d158; border-color: #30d158; }
 
 /* 布局编辑 */
-.layout-card { display: flex; flex-direction: column; gap: 10px; }
+.layout-card { display: flex; flex-direction: column; gap: 0; }
 .layout-tools {
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
 }
@@ -404,37 +560,79 @@ body {
       </div>
     </div>
 
-    <div class="hud-hint" id="scene-hint">🖱 拖动旋转 · 滚轮缩放 · 点击图标切换 · 按住图标拖动位置</div>
+    <div class="hud-hint" id="scene-hint">🖱 拖动旋转 · 滚轮缩放 · 点击图标切换 · 按住图标拖动位置 · WASD/方向键/小键盘平移</div>
     <div class="hud-edit" id="hud-edit" onclick="toggleEditMode()">
   <div class="edit-dot"></div>
   <span id="edit-label">操控模式:关</span>
 </div>
-  </div>
+    </div>
 
   <div id="panel">
+    <button type="button" id="panel-toggle" onclick="toggleMainPanel()" aria-expanded="true" aria-controls="panel-main" title="收起控制面板">
+      <span class="panel-toggle-glyph" id="panel-toggle-glyph">></span>
+    </button>
+
+    <div class="panel-mini" id="panel-mini" aria-hidden="true">
+      <button type="button" class="panel-mini-open" id="panel-mini-open-btn" onclick="toggleMainPanel(true)">展开</button>
+      <div class="panel-mini-label">CONTROL</div>
+      <button type="button" class="panel-mini-chip" onclick="openPanelSection('devices')">
+        <span class="panel-mini-chip-kicker">DEV</span>
+        <span class="panel-mini-chip-value" id="mini-devices">0</span>
+      </button>
+      <button type="button" class="panel-mini-chip" onclick="openPanelSection('appliances')">
+        <span class="panel-mini-chip-kicker">ON</span>
+        <span class="panel-mini-chip-value" id="mini-appliances">0</span>
+      </button>
+      <button type="button" class="panel-mini-chip" onclick="openPanelSection('layout')">
+        <span class="panel-mini-chip-kicker">LAY</span>
+        <span class="panel-mini-chip-value" id="mini-layout">0</span>
+      </button>
+      <div class="panel-mini-tip">点数字可展开到对应分区</div>
+    </div>
+
+    <div class="panel-main" id="panel-main">
     <div class="card head-card">
-      <div class="head-title">DAM1600D</div>
-      <div class="head-sub">MULTI-DEVICE LIGHTING CONTROL</div>
+      <div class="head-top">
+        <div class="head-copy">
+          <div class="head-title">DAM1600D</div>
+          <div class="head-sub">MULTI-DEVICE LIGHTING CONTROL</div>
+        </div>
+        <button type="button" class="panel-visibility-btn" id="panel-visibility-btn" onclick="toggleMainPanel()">收起侧栏</button>
+      </div>
       <div class="head-row">
         <button class="btn btn-primary" onclick="connectAll()">连接全部</button>
         <button class="btn btn-ghost" onclick="disconnectAll()">断开全部</button>
       </div>
     </div>
 
-    <div class="card">
-      <div class="sec-head">
-        <div class="sec-label">DEVICES</div>
+    <div class="card collapsible-card" id="section-devices">
+      <div class="collapse-bar">
+        <button type="button" class="collapse-head" data-section-toggle="devices" onclick="togglePanelSection('devices')">
+          <div class="collapse-copy">
+            <div class="sec-label collapse-title">DEVICES</div>
+            <div class="collapse-meta" id="meta-devices">0 devices</div>
+          </div>
+          <div class="collapse-chevron">v</div>
+        </button>
       </div>
+      <div class="collapse-body" id="body-devices" aria-hidden="true">
       <div class="dev-list" id="dev-list"></div>
       <div class="card-foot">
         <button class="btn btn-ghost" onclick="showDeviceModal()">+ 添加设备</button>
       </div>
+      </div>
     </div>
 
-    <div class="card light-card">
-      <div class="sec-head">
-        <div class="sec-label">APPLIANCES</div>
-        <div class="sec-tools">
+    <div class="card light-card collapsible-card open" id="section-appliances">
+      <div class="collapse-bar">
+        <button type="button" class="collapse-head" data-section-toggle="appliances" onclick="togglePanelSection('appliances')">
+          <div class="collapse-copy">
+            <div class="sec-label collapse-title">APPLIANCES</div>
+            <div class="collapse-meta" id="meta-appliances">0 items</div>
+          </div>
+          <div class="collapse-chevron">v</div>
+        </button>
+        <div class="section-toolbar">
           <div class="mini-toggle-wrap">
             <span>标签常显</span>
             <button class="mini-toggle" id="label-toggle-btn" onclick="toggleLabelPins()" title="切换标签常显"></button>
@@ -442,15 +640,24 @@ body {
           <button class="btn btn-ghost" style="padding: 5px 10px; font-size: 11px;" onclick="showLightsModal()">设备管理</button>
         </div>
       </div>
-      <div class="light-rows" id="light-rows"></div>
+      <div class="collapse-body" id="body-appliances" aria-hidden="false">
+        <div class="light-rows" id="light-rows"></div>
+      </div>
     </div>
 
-    <div class="card layout-card">
-      <div class="sec-head">
-        <div class="sec-label">LAYOUT</div>
+    <div class="card layout-card collapsible-card" id="section-layout">
+      <div class="collapse-bar">
+        <button type="button" class="collapse-head" data-section-toggle="layout" onclick="togglePanelSection('layout')">
+          <div class="collapse-copy">
+            <div class="sec-label collapse-title">LAYOUT</div>
+            <div class="collapse-meta" id="meta-layout">0 walls / 0 zones</div>
+          </div>
+          <div class="collapse-chevron">v</div>
+        </button>
         <button class="btn btn-ghost" style="padding: 5px 10px; font-size: 11px;" id="layout-toggle-btn" onclick="toggleLayoutMode()">布局编辑</button>
       </div>
-      <div class="layout-tools">
+      <div class="collapse-body" id="body-layout" aria-hidden="true">
+        <div class="layout-tools">
         <button class="tool-chip" id="tool-select" onclick="setLayoutTool('select')">选择</button>
         <button class="tool-chip" id="tool-wall" onclick="setLayoutTool('wall')">画墙</button>
         <button class="tool-chip" id="tool-zone" onclick="setLayoutTool('zone')">画区域</button>
@@ -463,12 +670,14 @@ body {
         <button class="btn btn-ghost" id="layout-save-btn" onclick="saveLayout()">保存布局</button>
         <button class="btn btn-danger" id="layout-del-btn" onclick="deleteSelectedLayout()">删除选中</button>
       </div>
+      </div>
     </div>
 
     <div class="card bot-card">
       <button class="btn btn-ghost" onclick="refreshStatus()">🔄 刷新</button>
       <button class="btn btn-primary" onclick="batchAll(true)">全部打开</button>
       <button class="btn btn-danger" onclick="batchAll(false)">全部关闭</button>
+    </div>
     </div>
   </div>
 </div>
@@ -597,12 +806,74 @@ controls.maxDistance = 55 * SCALE;
 controls.maxPolarAngle = Math.PI / 2.1;
 controls.target.set(0, 14, 0);
 
+const KEYBOARD_PAN_UP = new THREE.Vector3(0, 1, 0);
+const keyboardPanForward = new THREE.Vector3();
+const keyboardPanRight = new THREE.Vector3();
+const keyboardPanOffset = new THREE.Vector3();
+
+function isTypingTarget(target) {
+  if (!target) return false;
+  if (target.isContentEditable) return true;
+  const tag = target.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+}
+
+function getKeyboardPanDirection(event) {
+  switch (event.code) {
+    case 'KeyW':
+    case 'Numpad8':
+      return { x: 0, z: 1 };
+    case 'KeyS':
+    case 'Numpad2':
+      return { x: 0, z: -1 };
+    case 'KeyA':
+    case 'Numpad4':
+      return { x: -1, z: 0 };
+    case 'KeyD':
+    case 'Numpad6':
+      return { x: 1, z: 0 };
+  }
+  switch (event.key) {
+    case 'ArrowUp':
+      return { x: 0, z: 1 };
+    case 'ArrowDown':
+      return { x: 0, z: -1 };
+    case 'ArrowLeft':
+      return { x: -1, z: 0 };
+    case 'ArrowRight':
+      return { x: 1, z: 0 };
+  }
+  return null;
+}
+
+function panSceneByKeyboard(dirX, dirZ) {
+  keyboardPanForward.subVectors(controls.target, camera.position);
+  keyboardPanForward.y = 0;
+  if (keyboardPanForward.lengthSq() < 0.0001) {
+    keyboardPanForward.set(0, 0, -1);
+  } else {
+    keyboardPanForward.normalize();
+  }
+  keyboardPanRight.crossVectors(keyboardPanForward, KEYBOARD_PAN_UP).normalize();
+  const distance = camera.position.distanceTo(controls.target);
+  const step = clamp(distance * 0.06, 1.2 * SCALE, 4.4 * SCALE);
+  keyboardPanOffset.copy(keyboardPanRight).multiplyScalar(dirX * step);
+  keyboardPanOffset.addScaledVector(keyboardPanForward, dirZ * step);
+  camera.position.add(keyboardPanOffset);
+  controls.target.add(keyboardPanOffset);
+  controls.update();
+}
+
 function resize() {
   const w = sceneWrap.clientWidth;
   const h = sceneWrap.clientHeight;
   renderer.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+}
+function scheduleSceneResize() {
+  requestAnimationFrame(resize);
+  setTimeout(resize, 280);
 }
 window.addEventListener('resize', resize);
 resize();
@@ -674,6 +945,8 @@ let labelsPinned = false;
 let focusedLampIdx = null;
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
+let lightPlacementIndex = null;
+let lightPlacementMarker = null;
 
 function setMeshShadow(mesh, receiveShadow = true) {
   mesh.castShadow = true;
@@ -967,6 +1240,122 @@ function clampLightPositionsToBuilding() {
   });
 }
 
+function ensureLightPlacementMarker() {
+  if (lightPlacementMarker) return lightPlacementMarker;
+  const group = new THREE.Group();
+
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.7, 1.08, 40),
+    new THREE.MeshBasicMaterial({
+      color: 0x30d158,
+      transparent: true,
+      opacity: 0.82,
+      side: THREE.DoubleSide
+    })
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.03;
+  group.add(ring);
+
+  const core = new THREE.Mesh(
+    new THREE.CircleGeometry(0.16, 24),
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.92,
+      side: THREE.DoubleSide
+    })
+  );
+  core.rotation.x = -Math.PI / 2;
+  core.position.y = 0.04;
+  group.add(core);
+
+  const stem = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.035, 0.035, 1.4, 12),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.42 })
+  );
+  stem.position.y = 0.72;
+  group.add(stem);
+
+  group.visible = false;
+  scene.add(group);
+  lightPlacementMarker = { group, ring, core, stem };
+  return lightPlacementMarker;
+}
+
+function updateLightPlacementMarker(point) {
+  const marker = ensureLightPlacementMarker();
+  const light = editingLights[lightPlacementIndex];
+  const accent = light ? getItemMeta(light.type).accentHex : 0x30d158;
+  marker.ring.material.color.setHex(accent);
+  marker.group.position.set(point.x, 0, point.z);
+  marker.group.visible = true;
+}
+
+function openLightsModalFromEditingState(scrollToIndex) {
+  const modal = document.getElementById('lights-modal');
+  if (!modal) return;
+  renderLightsConfig();
+  modal.classList.add('show');
+  if (typeof scrollToIndex === 'number') {
+    requestAnimationFrame(function() {
+      const row = document.getElementById('light-config-row-' + scrollToIndex);
+      if (row) row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  }
+}
+
+function cancelLightPlacement(reopenModal) {
+  lightPlacementIndex = null;
+  if (lightPlacementMarker) lightPlacementMarker.group.visible = false;
+  updateSceneHint();
+  updateCanvasCursor();
+  if (reopenModal) openLightsModalFromEditingState();
+}
+
+function startLightPlacement(index) {
+  if (!editingLights[index]) return;
+  if (layoutMode) toggleLayoutMode(false);
+  lightPlacementIndex = index;
+  document.getElementById('lights-modal').classList.remove('show');
+  const current = editingLights[index];
+  const point = Number.isFinite(current.x) && Number.isFinite(current.z)
+    ? clampFloorPoint({ x: current.x, z: current.z })
+    : { x: 0, z: 0 };
+  updateLightPlacementMarker(point);
+  updateSceneHint();
+  updateCanvasCursor();
+}
+
+function finishLightPlacement(point) {
+  if (lightPlacementIndex == null || !editingLights[lightPlacementIndex]) return;
+  editingLights[lightPlacementIndex].x = Math.round(point.x * 100) / 100;
+  editingLights[lightPlacementIndex].z = Math.round(point.z * 100) / 100;
+  const placedIndex = lightPlacementIndex;
+  lightPlacementIndex = null;
+  if (lightPlacementMarker) lightPlacementMarker.group.visible = false;
+  updateSceneHint();
+  updateCanvasCursor();
+  openLightsModalFromEditingState(placedIndex);
+}
+
+window.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape' && lightPlacementIndex != null) {
+    cancelLightPlacement(true);
+    return;
+  }
+  if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (isTypingTarget(e.target)) return;
+  if (document.querySelector('.modal.show')) return;
+  const panDirection = getKeyboardPanDirection(e);
+  if (!panDirection) return;
+  panSceneByKeyboard(panDirection.x, panDirection.z);
+  e.preventDefault();
+  if (typeof e.stopPropagation === 'function') {
+    e.stopPropagation();
+  }
+});
+
 function applyLayoutBuildingChange(partial) {
   ensureLayoutConfig();
   config.layout = normalizeLayoutData({
@@ -1144,7 +1533,9 @@ function updateCanvasCursor() {
   if (!dragState && !layoutDrawState) {
     controls.enabled = !(layoutMode && layoutTool !== 'select');
   }
-  if (layoutMode) {
+  if (lightPlacementIndex != null) {
+    canvas.style.cursor = 'crosshair';
+  } else if (layoutMode) {
     canvas.style.cursor = layoutTool === 'select' ? 'pointer' : 'crosshair';
   } else if (editMode) {
     canvas.style.cursor = 'grab';
@@ -1156,21 +1547,26 @@ function updateCanvasCursor() {
 function updateSceneHint() {
   const el = document.getElementById('scene-hint');
   if (!el) return;
+  if (lightPlacementIndex != null && editingLights[lightPlacementIndex]) {
+    const meta = getItemMeta(editingLights[lightPlacementIndex].type);
+    el.textContent = '场景选点中 · 在左侧地面点击放置「' + meta.label + '」· WASD/方向键/小键盘平移 · 按 Esc 取消并返回配置';
+    return;
+  }
   if (layoutMode) {
     if (layoutTool === 'select') {
-      el.textContent = '布局编辑中 · 点击墙体或区域可选中，右侧面板可修改名称和尺寸';
+      el.textContent = '布局编辑中 · 点击墙体或区域可选中，右侧面板可修改名称和尺寸 · WASD/方向键/小键盘平移';
     } else if (layoutTool === 'wall') {
-      el.textContent = '布局编辑中 · 在地面拖拽绘制墙体，松开即可生成新的隔断';
+      el.textContent = '布局编辑中 · 在地面拖拽绘制墙体，松开即可生成新的隔断 · WASD/方向键/小键盘平移';
     } else {
-      el.textContent = '布局编辑中 · 在地面拖拽框选区域，随后可在右侧为区域命名';
+      el.textContent = '布局编辑中 · 在地面拖拽框选区域，随后可在右侧为区域命名 · WASD/方向键/小键盘平移';
     }
     return;
   }
   if (editMode) {
-    el.textContent = '🖱 拖动旋转 · 滚轮缩放 · 按住电器拖动位置';
+    el.textContent = '🖱 拖动旋转 · 滚轮缩放 · 按住电器拖动位置 · WASD/方向键/小键盘平移';
     return;
   }
-  el.textContent = '🖱 拖动旋转 · 滚轮缩放 · 点击图标切换 · 按住图标拖动位置';
+  el.textContent = '🖱 拖动旋转 · 滚轮缩放 · 点击图标切换 · 按住图标拖动位置 · WASD/方向键/小键盘平移';
 }
 
 function renderLayoutList() {
@@ -2166,6 +2562,13 @@ function handleLayoutPointerUp() {
 canvas.addEventListener('pointerdown', function(e) {
   if (e.button !== 0) return;
   screenToRay(e);
+  if (lightPlacementIndex != null) {
+    const point = getGroundPoint();
+    if (point) finishLightPlacement(point);
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    return;
+  }
   if (handleLayoutPointerDown(e)) return;
   const hits = lamps.map(l => l.hit);
   const inter = raycaster.intersectObjects(hits);
@@ -2178,6 +2581,13 @@ canvas.addEventListener('pointerdown', function(e) {
 
 canvas.addEventListener('pointermove', function(e) {
   screenToRay(e);
+  if (lightPlacementIndex != null) {
+    const point = getGroundPoint();
+    if (point) updateLightPlacementMarker(point);
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    return;
+  }
   if (handleLayoutPointerMove(e)) return;
   if (!dragState) return;
   if (!editMode) return;          // 操控模式关 → 不做拖动
@@ -2194,6 +2604,11 @@ canvas.addEventListener('pointermove', function(e) {
 });
 
 canvas.addEventListener('pointerup', function(e) {
+  if (lightPlacementIndex != null) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    return;
+  }
   if (handleLayoutPointerUp(e)) return;
   if (!dragState) return;
   const s = dragState;
@@ -2532,6 +2947,7 @@ function renderLightsConfig() {
   editingLights.forEach(function(lt, i) {
     const row = document.createElement('div');
     row.className = 'lc-row';
+    row.id = 'light-config-row-' + i;
     let devOptions = '';
     config.devices.forEach(d => {
       devOptions += '<option value="' + escapeHtml(d.ip) + '"' +
@@ -2667,6 +3083,7 @@ function refreshLayoutChrome() {
   }
 
   refreshLabelToggleUI();
+  refreshPanelSections();
   updateSceneHint();
   updateCanvasCursor();
 }
@@ -2758,8 +3175,11 @@ function createLamp(lightIdx, x, z, item) {
   const built = buildItemModel(item.type, modelRoot, meta);
   modelRoot.scale.setScalar(scale);
 
+  const hitW = Math.max(built.hit.w * scale, 2.4);
+  const hitH = Math.max(built.hit.h * scale, 1.4);
+  const hitD = Math.max(built.hit.d * scale, 2.4);
   const hit = new THREE.Mesh(
-    new THREE.BoxGeometry(built.hit.w * scale, built.hit.h * scale, built.hit.d * scale),
+    new THREE.BoxGeometry(hitW, hitH, hitD),
     new THREE.MeshBasicMaterial({ visible: false })
   );
   hit.position.y = built.hit.y * scale;
@@ -2896,6 +3316,7 @@ function loadConfig() {
     setLayoutDirty(false);
     updateLayoutUI();
     refreshLabelToggleUI();
+    refreshPanelSections();
   })();
 }
 
@@ -2910,6 +3331,7 @@ function renderLightsConfig() {
   editingLights.forEach(function(lt, i) {
     const row = document.createElement('div');
     row.className = 'lc-row';
+    row.id = 'light-config-row-' + i;
     let devOptions = '';
     config.devices.forEach(function(d) {
       devOptions += '<option value="' + escapeHtml(d.ip) + '"' +
@@ -2922,6 +3344,10 @@ function renderLightsConfig() {
         (lt.channel === c ? ' selected' : '') +
         '>CH' + String(c + 1).padStart(2, '0') + '</option>';
     }
+    const hasScenePos = Number.isFinite(lt.x) && Number.isFinite(lt.z);
+    const posText = hasScenePos
+      ? '场景位置: X ' + formatNum(lt.x) + ' · Z ' + formatNum(lt.z)
+      : '场景位置: 未设置，将按设备分组自动排布';
     row.innerHTML =
       '<input class="lc-name" type="text" placeholder="电器名称" value="' + escapeHtml(lt.name || '') + '">' +
       '<select class="lc-type">' + getTypeOptionsHtml(lt.type) + '</select>' +
@@ -2935,6 +3361,13 @@ function renderLightsConfig() {
     const inSize = row.querySelector('.lc-size');
     const selDev = row.querySelector('.lc-dev');
     const selCh = row.querySelector('.lc-ch');
+    const extra = document.createElement('div');
+    extra.className = 'lc-row-extra';
+    extra.innerHTML =
+      '<div class="lc-pos">' + escapeHtml(posText) + '</div>' +
+      '<button type="button" class="lc-place pick">场景选点</button>' +
+      (hasScenePos ? '<button type="button" class="lc-place reset">自动排布</button>' : '');
+    row.appendChild(extra);
     inName.oninput = function() { editingLights[i].name = inName.value; };
     selType.onchange = function() {
       const hadAutoName = isAutoName(editingLights[i].name);
@@ -2949,6 +3382,17 @@ function renderLightsConfig() {
     };
     selDev.onchange = function() { editingLights[i].device_ip = selDev.value; };
     selCh.onchange = function() { editingLights[i].channel = parseInt(selCh.value, 10); };
+    extra.querySelector('.lc-place.pick').onclick = function() {
+      startLightPlacement(i);
+    };
+    const resetBtn = extra.querySelector('.lc-place.reset');
+    if (resetBtn) {
+      resetBtn.onclick = function() {
+        delete editingLights[i].x;
+        delete editingLights[i].z;
+        renderLightsConfig();
+      };
+    }
     row.querySelector('.lc-del').onclick = function() {
       editingLights.splice(i, 1);
       renderLightsConfig();
@@ -3033,6 +3477,205 @@ function escapeHtml(s) {
 }
 
 // 暴露给 onclick
+const PANEL_SECTION_DEFAULTS = {
+  devices: false,
+  appliances: true,
+  layout: false
+};
+let panelSections = Object.assign({}, PANEL_SECTION_DEFAULTS);
+const PANEL_EXPANDED_STORAGE_KEY = 'dengkong.panel.expanded';
+let panelExpanded = true;
+
+try {
+  panelExpanded = localStorage.getItem(PANEL_EXPANDED_STORAGE_KEY) !== '0';
+} catch (err) {}
+
+function refreshMainPanel() {
+  const panel = document.getElementById('panel');
+  const toggle = document.getElementById('panel-toggle');
+  const glyph = document.getElementById('panel-toggle-glyph');
+  const mini = document.getElementById('panel-mini');
+  const panelButton = document.getElementById('panel-visibility-btn');
+  const miniButton = document.getElementById('panel-mini-open-btn');
+  const label = panelExpanded ? '收起控制面板' : '展开控制面板';
+
+  if (panel) panel.classList.toggle('panel-collapsed', !panelExpanded);
+  if (toggle) {
+    toggle.setAttribute('aria-expanded', panelExpanded ? 'true' : 'false');
+    toggle.setAttribute('aria-label', label);
+    toggle.setAttribute('title', label);
+  }
+  if (glyph) glyph.textContent = panelExpanded ? '>' : '<';
+  if (mini) mini.setAttribute('aria-hidden', panelExpanded ? 'true' : 'false');
+  if (panelButton) {
+    panelButton.textContent = panelExpanded ? '收起侧栏' : '展开侧栏';
+    panelButton.setAttribute('aria-label', label);
+    panelButton.setAttribute('title', label);
+  }
+  if (miniButton) {
+    miniButton.textContent = panelExpanded ? '已展开' : '展开';
+    miniButton.setAttribute('title', '展开控制面板');
+  }
+
+  try {
+    localStorage.setItem(PANEL_EXPANDED_STORAGE_KEY, panelExpanded ? '1' : '0');
+  } catch (err) {}
+}
+
+function toggleMainPanel(forceValue) {
+  panelExpanded = typeof forceValue === 'boolean' ? forceValue : !panelExpanded;
+  refreshMainPanel();
+  scheduleSceneResize();
+}
+
+function openPanelSection(key) {
+  if (!(key in PANEL_SECTION_DEFAULTS)) return;
+  panelExpanded = true;
+  panelSections[key] = true;
+  refreshMainPanel();
+  refreshPanelSections();
+  requestAnimationFrame(function() {
+    const section = document.getElementById('section-' + key);
+    if (section) {
+      section.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  });
+}
+
+function getConnectedDeviceCount() {
+  return (config.devices || []).filter(function(device) {
+    return !!(deviceStatus[device.ip] && deviceStatus[device.ip].connected);
+  }).length;
+}
+
+function getLightOnCount() {
+  return (config.lights || []).reduce(function(total, light) {
+    const st = deviceStatus[light.device_ip];
+    return total + (st && st.connected && st.relay_states && st.relay_states[light.channel] ? 1 : 0);
+  }, 0);
+}
+
+function refreshPanelSections() {
+  const layout = config.layout || DEFAULT_LAYOUT;
+  const wallCount = Array.isArray(layout.walls) ? layout.walls.length : 0;
+  const zoneCount = Array.isArray(layout.zones) ? layout.zones.length : 0;
+  const deviceCount = (config.devices || []).length;
+  const connectedCount = getConnectedDeviceCount();
+  const lightCount = (config.lights || []).length;
+  const lightOnCount = getLightOnCount();
+  const metaText = {
+    devices: deviceCount === 0
+      ? 'No devices'
+      : connectedCount + ' / ' + deviceCount + ' connected',
+    appliances: lightCount === 0
+      ? 'No items'
+      : lightOnCount + ' / ' + lightCount + ' on',
+    layout: wallCount + ' walls / ' + zoneCount + ' zones'
+  };
+
+  Object.keys(PANEL_SECTION_DEFAULTS).forEach(function(key) {
+    const open = !!panelSections[key];
+    const root = document.getElementById('section-' + key);
+    const body = document.getElementById('body-' + key);
+    const toggle = document.querySelector('[data-section-toggle="' + key + '"]');
+    const meta = document.getElementById('meta-' + key);
+    if (root) root.classList.toggle('open', open);
+    if (body) body.setAttribute('aria-hidden', open ? 'false' : 'true');
+    if (toggle) toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (meta) meta.textContent = metaText[key];
+  });
+
+  const miniDevices = document.getElementById('mini-devices');
+  const miniAppliances = document.getElementById('mini-appliances');
+  const miniLayout = document.getElementById('mini-layout');
+  if (miniDevices) miniDevices.textContent = String(deviceCount);
+  if (miniAppliances) miniAppliances.textContent = String(lightOnCount);
+  if (miniLayout) miniLayout.textContent = String(wallCount + zoneCount);
+}
+
+function togglePanelSection(key, forceValue) {
+  if (!(key in PANEL_SECTION_DEFAULTS)) return;
+  panelSections[key] = typeof forceValue === 'boolean' ? forceValue : !panelSections[key];
+  refreshPanelSections();
+}
+
+function renderDeviceList() {
+  const el = document.getElementById('dev-list');
+  el.innerHTML = '';
+  if (config.devices.length === 0) {
+    el.innerHTML = '<div class="empty-tip">No devices yet</div>';
+    refreshPanelSections();
+    return;
+  }
+  config.devices.forEach(function(d) {
+    const st = deviceStatus[d.ip];
+    const on = st && st.connected;
+    const row = document.createElement('div');
+    row.className = 'dev-item';
+    row.innerHTML =
+      '<div class="dev-dot ' + (on ? 'on' : '') + '"></div>' +
+      '<div class="dev-info">' +
+        '<div class="dev-name">' + escapeHtml(d.name || 'Unnamed') + '</div>' +
+        '<div class="dev-ip">' + escapeHtml(d.ip) + ':' + d.port + ' / Unit ' + d.unit_id + '</div>' +
+      '</div>' +
+      '<div class="dev-actions">' +
+        (on
+          ? '<button class="dev-btn d" data-act="disc">Disconnect</button>'
+          : '<button class="dev-btn c" data-act="conn">Connect</button>') +
+        '<button class="dev-btn x" data-act="del" title="Delete">x</button>' +
+      '</div>';
+    row.querySelector('[data-act="conn"]')?.addEventListener('click', function() { connectDevice(d); });
+    row.querySelector('[data-act="disc"]')?.addEventListener('click', function() { disconnectDevice(d.ip); });
+    row.querySelector('[data-act="del"]').addEventListener('click', function() { delDevice(d.ip); });
+    el.appendChild(row);
+  });
+  refreshPanelSections();
+}
+
+function renderLightRows() {
+  const el = document.getElementById('light-rows');
+  el.innerHTML = '';
+  if (config.lights.length === 0) {
+    el.innerHTML = '<div class="empty-tip">No appliances yet</div>';
+    refreshPanelSections();
+    return;
+  }
+  config.lights.forEach(function(lt, i) {
+    const meta = getItemMeta(lt.type);
+    const st = deviceStatus[lt.device_ip];
+    const connected = !!(st && st.connected);
+    const on = connected && st.relay_states && st.relay_states[lt.channel];
+    const row = document.createElement('div');
+    row.className = 'light-row' + (connected ? '' : ' disabled');
+    row.id = 'lrow-' + i;
+    const devName = (config.devices.find(function(d) { return d.ip === lt.device_ip; }) || {}).name || lt.device_ip;
+    row.innerHTML =
+      '<div class="l-dot' + (on ? ' on' : '') + '"></div>' +
+      '<div class="l-icon' + (on ? ' on' : '') + '" style="--icon-accent:' + meta.accent + ';">' + escapeHtml(meta.icon) + '</div>' +
+      '<div class="l-info">' +
+        '<div class="l-name' + (on ? ' on' : '') + '">' + escapeHtml(lt.name || 'Unnamed') + '</div>' +
+        '<div class="l-sub">' + escapeHtml(meta.label) + ' / ' + escapeHtml(devName) + ' / CH' + String(lt.channel + 1).padStart(2, '0') + '</div>' +
+      '</div>' +
+      '<div class="l-state' + (on ? ' on' : '') + '">' + (connected ? (on ? 'ON' : 'OFF') : '--') + '</div>' +
+      '<div class="toggle' + (on ? ' on' : '') + '"><div class="toggle-knob"></div></div>';
+    row.onclick = function() { toggleLight(i); };
+    el.appendChild(row);
+  });
+  refreshPanelSections();
+}
+
+function updateCounts() {
+  let on = 0;
+  const total = config.lights.length;
+  config.lights.forEach(function(lt) {
+    const st = deviceStatus[lt.device_ip];
+    if (st && st.connected && st.relay_states && st.relay_states[lt.channel]) on++;
+  });
+  document.getElementById('stat-on').textContent = on;
+  document.getElementById('stat-off').textContent = total - on;
+  refreshPanelSections();
+}
+
 window.connectAll = connectAll;
 window.disconnectAll = disconnectAll;
 window.showDeviceModal = showDeviceModal;
@@ -3043,6 +3686,9 @@ window.hideLightsModal = hideLightsModal;
 window.addLight = addLight;
 window.saveLights = saveLights;
 window.toggleLabelPins = toggleLabelPins;
+window.toggleMainPanel = toggleMainPanel;
+window.openPanelSection = openPanelSection;
+window.togglePanelSection = togglePanelSection;
 window.batchAll = batchAll;
 window.refreshStatus = refreshStatus;
 window.toggleLayoutMode = toggleLayoutMode;
@@ -3051,6 +3697,9 @@ window.saveLayout = saveLayout;
 window.deleteSelectedLayout = deleteSelectedLayout;
 
 // 启动
+refreshMainPanel();
+scheduleSceneResize();
+refreshPanelSections();
 updateLayoutUI();
 loadConfig();
 setInterval(function() {
