@@ -23,7 +23,7 @@ if (!CanvasRenderingContext2D.prototype.roundRect) {
 // 厂房水平尺寸放大倍数。
 const SCALE = 10;
 const DEFAULT_BUILDING = Object.freeze({
-  width: 60,
+  width: 120,
   depth: 40,
   wallH: 28,
   ridgeH: 50
@@ -94,7 +94,8 @@ buildSkyDome();
 
 const camera = new THREE.PerspectiveCamera(50, 1, 1.2, 2200);
 // Tibber 风格的高位俯视, 让剖切式无顶视角成为默认
-camera.position.set(0, 52 * SCALE, 42 * SCALE);
+const initialCameraFit = Math.max(BUILDING.width, BUILDING.depth);
+camera.position.set(0, initialCameraFit * 0.85, BUILDING.depth * 1.05);
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));

@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_FILE = BASE_DIR / "dam1600d_devices.json"
 
 DEFAULT_BUILDING = {
-    "width": 60,
+    "width": 120,
     "depth": 40,
     "wallH": 28,
     "ridgeH": 50,
