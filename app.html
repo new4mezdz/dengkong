@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DAM1600D 3D控制中心</title>
+<link rel="stylesheet" href="./assets/css/app.css">
+</head>
+<body>
+
+<div id="app">
+  <div id="scene-wrap">
+    <canvas id="scene"></canvas>
+
+    <div class="hud-top">
+      <div class="hud-top-left">
+        <div class="hud-clock" id="hud-clock">--:--</div>
+        <div>
+          <div class="hud-title">FACTORY LIVE VIEW · 3D</div>
+          <div class="hud-subtitle">厂房实时监控</div>
+        </div>
+      </div>
+      <div class="hud-top-right">
+        <div class="hud-temp">
+          <div class="hud-temp-main" id="hud-temp-main">— °C</div>
+          <div class="hud-temp-sub">
+            <span class="high" id="hud-temp-high">— °C</span>
+            <span style="margin: 0 6px; opacity: 0.5;">·</span>
+            <span class="low" id="hud-temp-low">— °C</span>
+          </div>
+        </div>
+        <div class="hud-stats">
+          <div class="stat stat-on">
+            <div class="stat-val" id="stat-on">0</div>
+            <div class="stat-lbl">已开</div>
+          </div>
+          <div class="stat">
+            <div class="stat-val" id="stat-off">0</div>
+            <div class="stat-lbl">离线</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hud-hint" id="scene-hint">🖱 拖动旋转 · 滚轮缩放 · 点击图标切换 · 按住图标拖动位置 · WASD/方向键/小键盘平移</div>
+    <div class="hud-edit hud-walk" id="hud-walk" onclick="toggleWalkMode()">
+  <div class="edit-dot"></div>
+  <span id="walk-label">第一人称:关</span>
+</div>
+    <div class="hud-edit" id="hud-edit" onclick="toggleEditMode()">
+  <div class="edit-dot"></div>
+  <span id="edit-label">操控模式:关</span>
+</div>
+    <div class="walk-reticle" id="walk-reticle" aria-hidden="true"></div>
+    <div class="walk-interact" id="walk-interact" hidden>
+      <div class="walk-interact-copy">
+        <div class="walk-interact-kicker" id="walk-interact-kicker">FIRST PERSON</div>
+        <div class="walk-interact-title" id="walk-interact-title">对准设备可交互</div>
+        <div class="walk-interact-meta" id="walk-interact-meta">按 E 或 Enter 切换当前设备</div>
+      </div>
+      <button type="button" class="walk-interact-btn" id="walk-interact-btn" onclick="triggerWalkInteraction()">E 切换</button>
+    </div>
+    </div>
+
+  <div id="panel">
+    <button type="button" id="panel-toggle" onclick="toggleMainPanel()" aria-expanded="true" aria-controls="panel-main" title="收起控制面板">
+      <span class="panel-toggle-glyph" id="panel-toggle-glyph">></span>
+    </button>
+
+    <div class="panel-mini" id="panel-mini" aria-hidden="true">
+      <button type="button" class="panel-mini-open" id="panel-mini-open-btn" onclick="toggleMainPanel(true)">展开</button>
+      <div class="panel-mini-label">控制</div>
+      <button type="button" class="panel-mini-chip" onclick="openPanelSection('devices')">
+        <span class="panel-mini-chip-kicker">设</span>
+        <span class="panel-mini-chip-value" id="mini-devices">0</span>
+      </button>
+      <button type="button" class="panel-mini-chip" onclick="openPanelSection('appliances')">
+        <span class="panel-mini-chip-kicker">亮</span>
+        <span class="panel-mini-chip-value" id="mini-appliances">0</span>
+      </button>
+      <button type="button" class="panel-mini-chip" onclick="openPanelSection('layout')">
+        <span class="panel-mini-chip-kicker">布</span>
+        <span class="panel-mini-chip-value" id="mini-layout">0</span>
+      </button>
+      <div class="panel-mini-tip">点数字可展开到对应分区</div>
+    </div>
+
+    <div class="panel-main" id="panel-main">
+    <div class="card head-card">
+      <div class="head-top">
+        <div class="head-copy">
+          <div class="head-title">DAM1600D</div>
+          <div class="head-sub">多设备灯光控制</div>
+        </div>
+        <button type="button" class="panel-visibility-btn" id="panel-visibility-btn" onclick="toggleMainPanel()">收起侧栏</button>
+      </div>
+      <div class="head-row">
+        <button class="btn btn-primary" onclick="connectAll()">连接全部</button>
+        <button class="btn btn-ghost" onclick="disconnectAll()">断开全部</button>
+      </div>
+      <div class="head-row head-row-secondary">
+        <button class="btn btn-ghost" onclick="openSetupWizard()">接入向导</button>
+        <button class="btn btn-ghost" onclick="showScenesModal()">场景预设</button>
+      </div>
+      <div class="head-row head-row-secondary">
+        <button class="btn btn-ghost" onclick="openProjectImportDialog()">导入工程</button>
+        <button class="btn btn-ghost" onclick="exportProjectConfig()">导出工程</button>
+      </div>
+      <div class="head-inline-status" id="runtime-summary"></div>
+    </div>
+
+    <div class="card setup-card" id="setup-card" hidden>
+      <div class="sec-label">快速开始</div>
+      <div class="setup-title">完成客户交付配置</div>
+      <div class="setup-copy">在这个面板里完成首次连接、电器绑定和基础场景配置。</div>
+      <div class="setup-checklist" id="setup-checklist"></div>
+      <div class="card-foot">
+        <button class="btn btn-primary" onclick="openSetupWizard()">打开接入向导</button>
+      </div>
+    </div>
+
+    <div class="card collapsible-card" id="section-devices">
+      <div class="collapse-bar">
+        <button type="button" class="collapse-head" data-section-toggle="devices" onclick="togglePanelSection('devices')">
+          <div class="collapse-copy">
+            <div class="sec-label collapse-title">设备</div>
+            <div class="collapse-meta" id="meta-devices">0 台设备</div>
+          </div>
+          <div class="collapse-chevron">v</div>
+        </button>
+      </div>
+      <div class="collapse-body" id="body-devices" aria-hidden="true">
+      <div class="dev-list" id="dev-list"></div>
+      <div class="card-foot">
+        <button class="btn btn-ghost" onclick="showDeviceModal()">+ 添加设备</button>
+      </div>
+      </div>
+    </div>
+
+    <div class="card light-card collapsible-card open" id="section-appliances">
+      <div class="collapse-bar">
+        <button type="button" class="collapse-head" data-section-toggle="appliances" onclick="togglePanelSection('appliances')">
+          <div class="collapse-copy">
+            <div class="sec-label collapse-title">电器</div>
+            <div class="collapse-meta" id="meta-appliances">0 个电器</div>
+          </div>
+          <div class="collapse-chevron">v</div>
+        </button>
+        <div class="section-toolbar">
+          <div class="mini-toggle-wrap">
+            <span>标签常显</span>
+            <button class="mini-toggle" id="label-toggle-btn" onclick="toggleLabelPins()" title="切换标签常显"></button>
+          </div>
+          <button class="btn btn-ghost" style="padding: 5px 10px; font-size: 11px;" onclick="showLightsModal()">设备管理</button>
+        </div>
+      </div>
+      <div class="collapse-body" id="body-appliances" aria-hidden="false">
+        <div class="flow-hub">
+          <div class="flow-column">
+            <div class="flow-head">
+              <span>分组控制</span>
+              <button type="button" class="flow-link" onclick="showLightsModal()">编辑分组</button>
+            </div>
+            <div class="group-list" id="group-list"></div>
+          </div>
+          <div class="flow-column">
+            <div class="flow-head">
+              <span>场景预设</span>
+              <button type="button" class="flow-link" onclick="showScenesModal()">管理</button>
+            </div>
+            <div class="scene-list" id="scene-list"></div>
+          </div>
+        </div>
+        <div class="status-strip" id="status-strip"></div>
+        <div class="light-rows" id="light-rows"></div>
+      </div>
+    </div>
+
+    <div class="card layout-card collapsible-card" id="section-layout">
+      <div class="collapse-bar">
+        <button type="button" class="collapse-head" data-section-toggle="layout" onclick="togglePanelSection('layout')">
+          <div class="collapse-copy">
+            <div class="sec-label collapse-title">布局</div>
+            <div class="collapse-meta" id="meta-layout">0 面墙 / 0 个区域</div>
+          </div>
+          <div class="collapse-chevron">v</div>
+        </button>
+        <button class="btn btn-ghost" style="padding: 5px 10px; font-size: 11px;" id="layout-toggle-btn" onclick="toggleLayoutMode()">布局编辑</button>
+      </div>
+      <div class="collapse-body" id="body-layout" aria-hidden="true">
+        <div class="layout-tools">
+        <button class="tool-chip" id="tool-select" onclick="setLayoutTool('select')">选择</button>
+        <button class="tool-chip" id="tool-wall" onclick="setLayoutTool('wall')">画墙</button>
+        <button class="tool-chip" id="tool-door" onclick="setLayoutTool('door')">卷帘门</button>
+        <button class="tool-chip" id="tool-pillar" onclick="setLayoutTool('pillar')">柱子</button>
+        <button class="tool-chip" id="tool-path" onclick="setLayoutTool('path')">通道</button>
+        <button class="tool-chip" id="tool-workstation" onclick="setLayoutTool('workstation')">工位</button>
+        <button class="tool-chip" id="tool-rack" onclick="setLayoutTool('rack')">货架</button>
+        <button class="tool-chip" id="tool-safety" onclick="setLayoutTool('safety')">消防</button>
+        <button class="tool-chip" id="tool-zone" onclick="setLayoutTool('zone')">画区域</button>
+      </div>
+      <div class="layout-status" id="layout-status">墙体 0 · 区域 0 · 已保存</div>
+      <div class="layout-help" id="layout-help">开启布局编辑后，在场景地面拖拽即可修建墙体或框选区域。</div>
+      <div class="layout-list" id="layout-list"></div>
+      <div class="layout-inspector" id="layout-inspector"></div>
+      <div class="card-foot">
+        <button class="btn btn-ghost" id="layout-save-btn" onclick="saveLayout()">保存布局</button>
+        <button class="btn btn-danger" id="layout-del-btn" onclick="deleteSelectedLayout()">删除选中</button>
+      </div>
+      </div>
+    </div>
+
+    <div class="card bot-card">
+      <button class="btn btn-ghost" onclick="refreshStatus()">🔄 刷新</button>
+      <button class="btn btn-primary" onclick="batchAll(true)">全部打开</button>
+      <button class="btn btn-danger" onclick="batchAll(false)">全部关闭</button>
+    </div>
+    </div>
+  </div>
+</div>
+
+<!-- 添加设备弹窗 -->
+<div id="toast-stack" aria-live="polite" aria-atomic="true"></div>
+<input id="project-import-input" type="file" accept=".json,application/json" hidden onchange="handleProjectFileSelection(event)">
+
+<div class="modal-bg" id="dev-modal">
+  <div class="modal">
+    <h3>添加新设备</h3>
+    <div class="sub">填写设备信息以开始远程控制</div>
+    <div class="modal-notice" id="dev-modal-notice" hidden></div>
+    <div class="form">
+      <div class="form-item"><label>设备名称</label><input id="in-name" value="新设备"></div>
+      <div class="form-item"><label>设备 IP 地址(用作唯一标识)</label><input id="in-ip" value="192.168.1.100"></div>
+      <div class="form-item"><label>端口</label><input id="in-port" value="502"></div>
+      <div class="form-item"><label>通道数量</label><input id="in-channel-count" type="number" min="1" max="128" value="16"></div>
+      <div class="form-item"><label>站号</label><input id="in-unit" value="254"></div>
+      <div class="form-item">
+        <label>协议</label>
+        <select id="in-protocol" onchange="onDeviceProtocolChange()">
+          <option value="modbus_tcp">Modbus TCP</option>
+          <option value="siemens_s7">Siemens S7-1200</option>
+        </select>
+      </div>
+      <div class="form-item" data-device-protocol="siemens_s7" hidden><label>机架</label><input id="in-rack" value="0"></div>
+      <div class="form-item" data-device-protocol="siemens_s7" hidden><label>槽号</label><input id="in-slot" value="1"></div>
+      <div class="form-item" data-device-protocol="siemens_s7" hidden><label>数据块编号</label><input id="in-db-number" value="1"></div>
+      <div class="form-item" data-device-protocol="siemens_s7" hidden><label>起始字节</label><input id="in-start-byte" value="0"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="hideDeviceModal()">取消</button>
+      <button class="btn btn-ghost" onclick="testDeviceModal()">测试连接</button>
+      <button class="btn btn-primary" onclick="saveDevice()">确认添加</button>
+    </div>
+  </div>
+</div>
+
+<!-- 电器管理弹窗 -->
+<div class="modal-bg" id="lights-modal">
+  <div class="modal wide">
+    <h3>电器管理</h3>
+    <div class="sub">每个电器绑定到一个设备通道(0–15)，可选择图标类型、自定义名称，并单独设置模型大小</div>
+    <div class="modal-notice" id="lights-modal-notice" hidden></div>
+    <datalist id="light-group-options"></datalist>
+    <div class="lc-list" id="lc-list"></div>
+    <button class="lc-add" onclick="addLight()">+ 添加一个电器</button>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="hideLightsModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveLights()">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="scenes-modal">
+  <div class="modal wide">
+    <h3>场景预设</h3>
+    <div class="sub">把分组开关状态保存成一键可复用的客户场景。</div>
+    <div class="modal-notice" id="scenes-modal-notice" hidden></div>
+    <div class="scene-config-list" id="scene-config-list"></div>
+    <button class="lc-add" onclick="addScene()">+ 添加场景预设</button>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="hideScenesModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveScenes()">保存场景</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="setup-modal">
+  <div class="modal wide setup-modal-shell">
+    <h3>接入向导</h3>
+    <div class="sub">按步骤完成首次接入，补齐设备、分组和常用场景。</div>
+    <div class="setup-stepper" id="setup-stepper"></div>
+    <div class="setup-stage">
+      <section class="setup-pane" id="setup-pane-device">
+        <div class="modal-notice" id="setup-device-notice" hidden></div>
+        <div class="form">
+          <div class="form-item"><label>设备名称</label><input id="setup-device-name" value="主控器"></div>
+          <div class="form-item"><label>设备 IP 地址</label><input id="setup-device-ip" value="192.168.1.100"></div>
+          <div class="form-item"><label>端口</label><input id="setup-device-port" value="502"></div>
+          <div class="form-item"><label>通道数量</label><input id="setup-device-channel-count" type="number" min="1" max="128" value="16"></div>
+          <div class="form-item"><label>站号</label><input id="setup-device-unit" value="254"></div>
+          <div class="form-item">
+            <label>协议</label>
+            <select id="setup-device-protocol" onchange="onSetupDeviceProtocolChange()">
+              <option value="modbus_tcp">Modbus TCP</option>
+              <option value="siemens_s7">Siemens S7-1200</option>
+            </select>
+          </div>
+          <div class="form-item" data-device-protocol="setup-device:siemens_s7" hidden><label>机架</label><input id="setup-device-rack" value="0"></div>
+          <div class="form-item" data-device-protocol="setup-device:siemens_s7" hidden><label>槽号</label><input id="setup-device-slot" value="1"></div>
+          <div class="form-item" data-device-protocol="setup-device:siemens_s7" hidden><label>数据块编号</label><input id="setup-device-db-number" value="1"></div>
+          <div class="form-item" data-device-protocol="setup-device:siemens_s7" hidden><label>起始字节</label><input id="setup-device-start-byte" value="0"></div>
+        </div>
+        <div class="setup-note">先测试连接，再保存设备，客户看到的失败原因会更清楚。</div>
+      </section>
+
+      <section class="setup-pane" id="setup-pane-appliances" hidden>
+        <div class="modal-notice" id="setup-appliance-notice" hidden></div>
+        <div class="form">
+          <div class="form-item">
+            <label>目标设备</label>
+            <div class="static-field" id="setup-device-summary">还没有保存设备</div>
+          </div>
+          <div class="form-item"><label>电器数量</label><input id="setup-appliance-count" type="number" min="1" max="128" value="4"></div>
+          <div class="form-item">
+            <label>默认类型</label>
+            <select id="setup-appliance-type">
+              <option value="lamp">灯</option>
+              <option value="printer">打印机</option>
+              <option value="smoke_machine">产烟机</option>
+              <option value="fan">风扇</option>
+              <option value="socket">插座</option>
+              <option value="camera">摄像头</option>
+              <option value="alarm">报警器</option>
+            </select>
+          </div>
+          <div class="form-item"><label>名称前缀</label><input id="setup-appliance-prefix" value="区域"></div>
+          <div class="form-item"><label>分组名称</label><input id="setup-appliance-group" value="主区域"></div>
+        </div>
+        <div class="setup-preview" id="setup-appliance-preview"></div>
+      </section>
+
+      <section class="setup-pane" id="setup-pane-scenes" hidden>
+        <div class="modal-notice" id="setup-scenes-notice" hidden></div>
+        <div class="form">
+          <div class="form-item">
+            <label>推荐场景</label>
+            <div class="setup-checkbox">
+              <input id="setup-scenes-enabled" type="checkbox" checked>
+              <span>自动生成开工 / 下班场景</span>
+            </div>
+          </div>
+          <div class="form-item">
+            <label>分组专用场景</label>
+            <div class="setup-checkbox">
+              <input id="setup-scenes-focus-enabled" type="checkbox" checked>
+              <span>为当前新分组生成一个独立启用场景</span>
+            </div>
+          </div>
+        </div>
+        <div class="setup-preview" id="setup-scenes-summary"></div>
+      </section>
+    </div>
+    <div class="modal-actions setup-actions">
+      <button class="btn btn-ghost" id="setup-back-btn" onclick="setupWizardBack()">上一步</button>
+      <button class="btn btn-ghost" id="setup-test-btn" onclick="setupWizardTestDevice()">测试连接</button>
+      <button class="btn btn-primary" id="setup-next-btn" onclick="setupWizardNext()">保存并继续</button>
+    </div>
+  </div>
+</div>
+
+<script src="./libs/three.min.js"></script>
+<script src="./libs/OrbitControls.js"></script>
+<script src="./assets/js/app-01-core.js"></script>
+<script src="./assets/js/app-02-models.js"></script>
+<script src="./assets/js/app-runtime-main.js"></script>
+<script src="./assets/js/app-ui-main.js"></script>
+<script src="./assets/js/app-05-layout-extensions.js"></script>
+</body>
+</html>

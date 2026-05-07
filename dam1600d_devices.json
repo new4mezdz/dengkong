@@ -1,7 +1,7 @@
 {
   "devices": [
     {
-      "name": "默认设备",
+      "name": "\u9ed8\u8ba4\u8bbe\u5907",
       "ip": "192.168.1.100",
       "port": 502,
       "unit_id": 254
@@ -9,31 +9,76 @@
   ],
   "lights": [
     {
-      "name": "新灯",
+      "name": "\u751f\u4ea7\u533a\u9876\u706f A",
       "type": "lamp",
-      "scale": 3,
+      "scale": 2.6,
       "device_ip": "192.168.1.100",
       "channel": 0,
-      "x": -14.33,
-      "z": 20.41
+      "x": -175,
+      "z": -85
     },
     {
-      "name": "新灯",
+      "name": "\u4ea7\u7ebf\u9876\u706f B",
       "type": "lamp",
-      "scale": 3,
+      "scale": 2.6,
       "device_ip": "192.168.1.100",
       "channel": 1,
-      "x": 15.86,
-      "z": 1.33
+      "x": -20,
+      "z": -85
     },
     {
-      "name": "新打印机",
-      "type": "printer",
-      "scale": 1,
+      "name": "\u4ed3\u50a8\u533a\u9876\u706f C",
+      "type": "lamp",
+      "scale": 2.6,
       "device_ip": "192.168.1.100",
       "channel": 2,
-      "x": -12.05,
-      "z": 37.35
+      "x": 190,
+      "z": -10
+    },
+    {
+      "name": "\u5305\u88c5\u533a\u9876\u706f D",
+      "type": "lamp",
+      "scale": 2.6,
+      "device_ip": "192.168.1.100",
+      "channel": 3,
+      "x": -175,
+      "z": 120
+    },
+    {
+      "name": "\u4ea7\u70df\u673a A",
+      "type": "smoke_machine",
+      "scale": 1,
+      "device_ip": "192.168.1.100",
+      "channel": 4,
+      "x": 35,
+      "z": -112
+    },
+    {
+      "name": "\u901a\u98ce\u98ce\u6247 A",
+      "type": "fan",
+      "scale": 1,
+      "device_ip": "192.168.1.100",
+      "channel": 5,
+      "x": 90,
+      "z": 110
+    },
+    {
+      "name": "\u4fa7\u95e8\u62a5\u8b66\u5668",
+      "type": "alarm",
+      "scale": 1,
+      "device_ip": "192.168.1.100",
+      "channel": 6,
+      "x": -286,
+      "z": 148
+    },
+    {
+      "name": "\u88c5\u5378\u6444\u50cf\u5934",
+      "type": "camera",
+      "scale": 1,
+      "device_ip": "192.168.1.100",
+      "channel": 7,
+      "x": 282,
+      "z": 162
     }
   ],
   "layout": {
@@ -43,7 +88,242 @@
       "wallH": 28,
       "ridgeH": 50
     },
-    "walls": [],
-    "zones": []
+    "walls": [
+      {
+        "id": "wall-pack-01",
+        "name": "\u5305\u88c5\u9694\u65ad",
+        "x1": -255,
+        "z1": 40,
+        "x2": -40,
+        "z2": 40,
+        "height": 12,
+        "thickness": 4.4
+      },
+      {
+        "id": "wall-pack-02",
+        "name": "\u5de1\u68c0\u9694\u65ad",
+        "x1": -40,
+        "z1": 40,
+        "x2": -40,
+        "z2": 160,
+        "height": 12,
+        "thickness": 4.4
+      }
+    ],
+    "zones": [
+      {
+        "id": "zone-prod",
+        "name": "\u751f\u4ea7\u533a",
+        "x": -10,
+        "z": -55,
+        "width": 250,
+        "depth": 150,
+        "color": "#5ac8fa"
+      },
+      {
+        "id": "zone-store",
+        "name": "\u4ed3\u50a8\u533a",
+        "x": 205,
+        "z": 25,
+        "width": 150,
+        "depth": 180,
+        "color": "#f59e0b"
+      },
+      {
+        "id": "zone-pack",
+        "name": "\u5305\u88c5\u5de1\u68c0\u533a",
+        "x": -175,
+        "z": 110,
+        "width": 150,
+        "depth": 110,
+        "color": "#34d399"
+      }
+    ],
+    "pillars": [
+      { "id": "pillar-01", "name": "\u67f1\u5b50 1", "x": -190, "z": -120, "diameter": 18, "height": 28 },
+      { "id": "pillar-02", "name": "\u67f1\u5b50 2", "x": 0, "z": -120, "diameter": 18, "height": 28 },
+      { "id": "pillar-03", "name": "\u67f1\u5b50 3", "x": 190, "z": -120, "diameter": 18, "height": 28 },
+      { "id": "pillar-04", "name": "\u67f1\u5b50 4", "x": -190, "z": 10, "diameter": 18, "height": 28 },
+      { "id": "pillar-05", "name": "\u67f1\u5b50 5", "x": 0, "z": 10, "diameter": 18, "height": 28 },
+      { "id": "pillar-06", "name": "\u67f1\u5b50 6", "x": 190, "z": 10, "diameter": 18, "height": 28 },
+      { "id": "pillar-07", "name": "\u67f1\u5b50 7", "x": -190, "z": 145, "diameter": 18, "height": 28 },
+      { "id": "pillar-08", "name": "\u67f1\u5b50 8", "x": 0, "z": 145, "diameter": 18, "height": 28 },
+      { "id": "pillar-09", "name": "\u67f1\u5b50 9", "x": 190, "z": 145, "diameter": 18, "height": 28 }
+    ],
+    "doors": [
+      {
+        "id": "door-loading",
+        "name": "\u88c5\u5378\u5377\u5e18\u95e8",
+        "x": 120,
+        "z": 188,
+        "length": 110,
+        "height": 18,
+        "thickness": 0.75,
+        "rotation": 0,
+        "variant": "rolling"
+      },
+      {
+        "id": "door-qc",
+        "name": "\u5de1\u68c0\u51fa\u5165\u53e3",
+        "x": -40,
+        "z": 100,
+        "length": 50,
+        "height": 10,
+        "thickness": 0.6,
+        "rotation": 90,
+        "variant": "double"
+      },
+      {
+        "id": "door-side",
+        "name": "\u4fa7\u95e8\u51fa\u5165\u53e3",
+        "x": -288,
+        "z": 145,
+        "length": 42,
+        "height": 9,
+        "thickness": 0.55,
+        "rotation": 90,
+        "variant": "double"
+      }
+    ],
+    "paths": [
+      {
+        "id": "path-human-main",
+        "name": "\u4eba\u884c\u901a\u9053",
+        "x": -235,
+        "z": 0,
+        "width": 36,
+        "depth": 325,
+        "rotation": 0,
+        "variant": "human",
+        "color": "#67e8f9"
+      },
+      {
+        "id": "path-forklift-main",
+        "name": "\u53c9\u8f66\u4e3b\u901a\u9053",
+        "x": 95,
+        "z": 15,
+        "width": 82,
+        "depth": 310,
+        "rotation": 0,
+        "variant": "forklift",
+        "color": "#facc15"
+      },
+      {
+        "id": "path-human-pack",
+        "name": "\u5305\u88c5\u533a\u4eba\u884c\u7ebf",
+        "x": -150,
+        "z": 112,
+        "width": 95,
+        "depth": 42,
+        "rotation": 0,
+        "variant": "human",
+        "color": "#67e8f9"
+      }
+    ],
+    "workstations": [
+      {
+        "id": "work-line-01",
+        "name": "\u4e00\u53f7\u4ea7\u7ebf",
+        "x": -20,
+        "z": -55,
+        "width": 190,
+        "depth": 58,
+        "rotation": 0,
+        "height": 4.2,
+        "variant": "line"
+      },
+      {
+        "id": "work-pack-01",
+        "name": "\u5305\u88c5\u5de5\u4f4d",
+        "x": -165,
+        "z": 122,
+        "width": 85,
+        "depth": 52,
+        "rotation": 0,
+        "height": 3.2,
+        "variant": "station"
+      },
+      {
+        "id": "work-qc-01",
+        "name": "\u5de1\u68c0\u5de5\u4f4d",
+        "x": -100,
+        "z": 90,
+        "width": 70,
+        "depth": 42,
+        "rotation": 0,
+        "height": 3.2,
+        "variant": "station"
+      }
+    ],
+    "racks": [
+      {
+        "id": "rack-double-01",
+        "name": "\u539f\u6599\u53cc\u6392\u8d27\u67b6 A",
+        "x": 195,
+        "z": -55,
+        "width": 110,
+        "depth": 54,
+        "rotation": 0,
+        "height": 15,
+        "levels": 4,
+        "variant": "double"
+      },
+      {
+        "id": "rack-double-02",
+        "name": "\u6210\u54c1\u53cc\u6392\u8d27\u67b6 B",
+        "x": 195,
+        "z": 20,
+        "width": 110,
+        "depth": 54,
+        "rotation": 0,
+        "height": 15,
+        "levels": 4,
+        "variant": "double"
+      },
+      {
+        "id": "rack-single-01",
+        "name": "\u5305\u88c5\u5355\u6392\u8d27\u67b6",
+        "x": 205,
+        "z": 105,
+        "width": 90,
+        "depth": 30,
+        "rotation": 0,
+        "height": 12,
+        "levels": 3,
+        "variant": "single"
+      }
+    ],
+    "safetyStations": [
+      {
+        "id": "safe-hydrant-01",
+        "name": "\u88c5\u5378\u533a\u6d88\u706b\u6813",
+        "x": 255,
+        "z": 150,
+        "width": 16,
+        "depth": 11,
+        "height": 2.6,
+        "variant": "hydrant"
+      },
+      {
+        "id": "safe-ext-01",
+        "name": "\u4ea7\u7ebf\u706d\u706b\u5668",
+        "x": 60,
+        "z": -10,
+        "width": 12,
+        "depth": 8,
+        "height": 2.1,
+        "variant": "extinguisher"
+      },
+      {
+        "id": "safe-exit-01",
+        "name": "\u4fa7\u95e8\u5e94\u6025\u51fa\u53e3",
+        "x": -280,
+        "z": 145,
+        "width": 18,
+        "depth": 7,
+        "height": 2.8,
+        "variant": "exit"
+      }
+    ]
   }
 }

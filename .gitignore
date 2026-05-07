@@ -2,6 +2,11 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.log
 
 .DS_Store
 Thumbs.db
+.claude/
+.idea/
+.tmp-edge-profile/
+.tmp-validation/
