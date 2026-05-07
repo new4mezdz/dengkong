@@ -869,7 +869,11 @@ canvas.addEventListener('pointerdown', function(e) {
     return;
   }
   if (handleLayoutPointerDown(e)) return;
-  const hits = lamps.map(l => l.hit);
+  const hits = [];
+  lamps.forEach(function(l) {
+    if (l.iconSprite) hits.push(l.iconSprite);
+    if (l.hit) hits.push(l.hit);
+  });
   const inter = raycaster.intersectObjects(hits);
   if (inter.length > 0) {
     const idx = inter[0].object.userData.lightIdx;

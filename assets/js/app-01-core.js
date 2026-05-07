@@ -346,9 +346,12 @@ function updateWalkInteractionState() {
     return;
   }
   walkInteractRaycaster.setFromCamera(walkInteractCenter, camera);
-  const hits = walkInteractRaycaster.intersectObjects(lamps.map(function(lamp) {
-    return lamp.hit;
-  }));
+  const walkHitTargets = [];
+  lamps.forEach(function(lamp) {
+    if (lamp.iconSprite) walkHitTargets.push(lamp.iconSprite);
+    if (lamp.hit) walkHitTargets.push(lamp.hit);
+  });
+  const hits = walkInteractRaycaster.intersectObjects(walkHitTargets);
   setWalkInteractTarget(hits.length ? hits[0].object.userData.lightIdx : null);
   updateWalkInteractUI();
 }

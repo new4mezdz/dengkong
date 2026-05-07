@@ -12,9 +12,17 @@ function animate() {
   else controls.update();
   if (typeof updateRoofFade === 'function') updateRoofFade();
   if (typeof updateWalkInteractionState === 'function') updateWalkInteractionState();
+  if (typeof updateIconHoverScale === 'function') updateIconHoverScale(delta);
   renderer.render(scene, camera);
 }
 animate();
+
+if (typeof canvas !== 'undefined' && canvas) {
+  canvas.addEventListener('pointermove', setIconHoverPointer, { passive: true });
+  canvas.addEventListener('pointerdown', setIconHoverPointer, { passive: true });
+  canvas.addEventListener('pointerleave', function() { setIconHoverPointer(null); }, { passive: true });
+  canvas.addEventListener('pointercancel', function() { setIconHoverPointer(null); }, { passive: true });
+}
 
 const DEFAULT_DEVICE_PROTOCOL = 'modbus_tcp';
 const DEFAULT_DEVICE_CHANNEL_COUNT = 16;
@@ -2120,6 +2128,109 @@ function refreshLabelToggleUI() {
   btn.title = labelsPinned ? '标签已常显' : '点击后显示标签';
 }
 
+const ICON_HOVER_MAX_MULT = 1.85;
+const ICON_HOVER_INNER_PX = 36;
+const ICON_HOVER_OUTER_PX = 180;
+const _iconHoverProbe = new THREE.Vector3();
+const _iconHoverPointer = { x: 0, y: 0, valid: false };
+
+function setIconHoverPointer(e) {
+  if (!e) { _iconHoverPointer.valid = false; return; }
+  _iconHoverPointer.x = e.clientX;
+  _iconHoverPointer.y = e.clientY;
+  _iconHoverPointer.valid = true;
+}
+
+function updateIconHoverScale(delta) {
+  if (!Array.isArray(lamps) || !lamps.length) return;
+  const canvasEl = renderer && renderer.domElement;
+  if (!canvasEl) return;
+  const rect = canvasEl.getBoundingClientRect();
+  const draggingMoved = (typeof dragState !== 'undefined') && dragState && dragState.moved;
+  const blocked = (typeof walkMode !== 'undefined' && walkMode)
+    || (typeof layoutMode !== 'undefined' && layoutMode)
+    || (typeof lightPlacementIndex !== 'undefined' && lightPlacementIndex != null)
+    || draggingMoved;
+  const pointerActive = _iconHoverPointer.valid && !blocked;
+  const px = pointerActive ? _iconHoverPointer.x - rect.left : 0;
+  const py = pointerActive ? _iconHoverPointer.y - rect.top : 0;
+  const lerp = 1 - Math.exp(-Math.max(delta, 0) * 16);
+
+  for (let i = 0; i < lamps.length; i++) {
+    const lamp = lamps[i];
+    const sprite = lamp && lamp.iconSprite;
+    if (!sprite || !lamp.iconBaseScale) continue;
+    let mult = 1;
+    if (pointerActive) {
+      sprite.getWorldPosition(_iconHoverProbe);
+      _iconHoverProbe.project(camera);
+      if (_iconHoverProbe.z >= -1 && _iconHoverProbe.z <= 1) {
+        const sx = (_iconHoverProbe.x * 0.5 + 0.5) * rect.width;
+        const sy = (-_iconHoverProbe.y * 0.5 + 0.5) * rect.height;
+        const dist = Math.hypot(sx - px, sy - py);
+        const span = ICON_HOVER_OUTER_PX - ICON_HOVER_INNER_PX;
+        const t = span > 0 ? clamp(1 - (dist - ICON_HOVER_INNER_PX) / span, 0, 1) : 0;
+        mult = 1 + t * (ICON_HOVER_MAX_MULT - 1);
+      }
+    }
+    const target = lamp.iconBaseScale * mult;
+    const current = lamp.iconCurrentScale != null ? lamp.iconCurrentScale : lamp.iconBaseScale;
+    const next = current + (target - current) * lerp;
+    lamp.iconCurrentScale = next;
+    sprite.scale.set(next, next, 1);
+  }
+}
+
+function hexToRgba(hex, alpha) {
+  if (typeof hex !== 'string') return 'rgba(255,255,255,' + alpha + ')';
+  const h = hex.replace('#', '');
+  if (h.length < 6) return 'rgba(255,255,255,' + alpha + ')';
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+}
+
+function drawDeviceButton(lamp, on) {
+  if (!lamp.iconCanvas) return;
+  const ctx = lamp.iconCanvas.getContext('2d');
+  const meta = lamp.meta;
+  const W = lamp.iconCanvas.width;
+  const H = lamp.iconCanvas.height;
+  const cx = W / 2;
+  const cy = H / 2;
+  const r = Math.min(W, H) / 2 - 22;
+
+  ctx.clearRect(0, 0, W, H);
+
+  if (on) {
+    const grad = ctx.createRadialGradient(cx, cy, r * 0.55, cx, cy, r + 32);
+    grad.addColorStop(0, hexToRgba(meta.accent, 0.55));
+    grad.addColorStop(1, hexToRgba(meta.accent, 0));
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = on ? 'rgba(18,18,22,0.96)' : 'rgba(20,20,24,0.88)';
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.lineWidth = on ? 8 : 5;
+  ctx.strokeStyle = on ? meta.accent : 'rgba(255,255,255,0.34)';
+  ctx.stroke();
+
+  ctx.font = 'bold 116px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = on ? '#ffffff' : 'rgba(235,235,240,0.86)';
+  ctx.fillText(meta.icon || '·', cx, cy + 6);
+
+  lamp.iconTex.needsUpdate = true;
+}
+
 function drawLabel(lamp, on) {
   const ctx = lamp.labelCanvas.getContext('2d');
   const meta = lamp.meta;
@@ -2233,8 +2344,17 @@ function createLamp(lightIdx, x, z, item) {
   group.add(hit);
 
   const labelY = Math.max(built.labelY * scale, built.labelY * 0.84) + 0.18;
-  const labelSprite = createCanvasSprite(256, 96, 7.8, 2.8, labelY);
+  const labelSprite = createCanvasSprite(256, 96, 7.8, 2.8, labelY + 2.4);
   group.add(labelSprite.sprite);
+
+  const iconY = Math.max(built.hit.y * scale, 1.2);
+  const iconSize = clamp(2.8 * Math.sqrt(scale), 2.4, 4.6);
+  const iconSprite = createCanvasSprite(256, 256, iconSize, iconSize, iconY);
+  iconSprite.sprite.userData.lightIdx = lightIdx;
+  iconSprite.sprite.renderOrder = 50;
+  iconSprite.sprite.material.depthTest = false;
+  iconSprite.sprite.material.depthWrite = false;
+  group.add(iconSprite.sprite);
 
   scene.add(group);
 
@@ -2244,6 +2364,11 @@ function createLamp(lightIdx, x, z, item) {
     labelCanvas: labelSprite.canvas,
     labelTex: labelSprite.tex,
     label: labelSprite.sprite,
+    iconCanvas: iconSprite.canvas,
+    iconTex: iconSprite.tex,
+    iconSprite: iconSprite.sprite,
+    iconBaseScale: iconSize,
+    iconCurrentScale: iconSize,
     state: false,
     name: item.name || '',
     meta: meta,
@@ -2257,6 +2382,7 @@ function createLamp(lightIdx, x, z, item) {
   if (lamp.applyState) lamp.applyState(false);
   lamp.label.visible = false;
   drawLabel(lamp, false);
+  drawDeviceButton(lamp, false);
   return lamp;
 }
 
@@ -2264,6 +2390,7 @@ function disposeLamp(lamp) {
   if (!lamp) return;
   disposeObjectGraph(lamp.group);
   if (lamp.labelTex) lamp.labelTex.dispose();
+  if (lamp.iconTex) lamp.iconTex.dispose();
 }
 
 function computeLayout(lights) {
@@ -2340,5 +2467,6 @@ function setLampState(index, state) {
   lamp.state = state;
   if (changed && lamp.applyState) lamp.applyState(state);
   drawLabel(lamp, state);
+  drawDeviceButton(lamp, state);
   lamp.label.visible = isLampLabelVisible(index);
 }
