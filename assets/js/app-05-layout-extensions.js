@@ -96,7 +96,8 @@ const EXT_PATH_VARIANTS = Object.freeze({
 
 const EXT_WORKSTATION_VARIANTS = Object.freeze({
   station: { label: '\u5de5\u4f4d' },
-  line: { label: '\u6574\u6761\u4ea7\u7ebf' }
+  line: { label: '\u6574\u6761\u4ea7\u7ebf' },
+  cigarette: { label: '\u5377\u5305\u673a' }
 });
 
 const EXT_RACK_VARIANTS = Object.freeze({
@@ -109,7 +110,9 @@ function getExtPathVariant(value) {
 }
 
 function getExtWorkstationVariant(value) {
-  return value === 'line' ? 'line' : 'station';
+  if (value === 'line') return 'line';
+  if (value === 'cigarette') return 'cigarette';
+  return 'station';
 }
 
 function getExtRackVariant(value) {
@@ -297,7 +300,7 @@ function normalizeExtWorkstation(item, idx) {
     minDepth: 18,
     height: 3.2,
     minHeight: 2,
-    maxHeight: 8
+    maxHeight: 14
   });
   if (!next) return null;
   next.variant = getExtWorkstationVariant(item && item.variant);
@@ -596,7 +599,143 @@ function createExtWorkstationObject(item, selected) {
   applyFloorOverlayProfile(surface, FLOOR_LAYER.workstation, 'workstation');
   group.add(surface);
   group.add(createExtRectBorder(item.width, item.depth, selected ? 0xffffff : getExtLayoutMeta('workstation').accentHex, 0.95, FLOOR_LAYER.border, FLOOR_RENDER_ORDER.workstation + 1));
-  if (variant === 'line') {
+  if (variant === 'cigarette') {
+    // Inverted-L industrial apparatus per spec:
+    //   bottom: long horizontal base + small connection block at left end
+    //   right side: slender vertical support rod + cylindrical part
+    //   top: square motor module (left) -> connector + mounting platform (mid) -> vertical mounting plate (right)
+    const cigGroup = new THREE.Group();
+    const alongWidth = item.width >= item.depth;
+    if (!alongWidth) cigGroup.rotation.y = Math.PI / 2;
+    group.add(cigGroup);
+
+    const W = Math.max(item.width, item.depth);
+    const D = Math.min(item.width, item.depth);
+    const H = Math.max(item.height, 6);
+    const halfW = W / 2;
+
+    const metalMat = new THREE.MeshStandardMaterial({
+      color: selected ? 0xc8cdd4 : 0xa6acb4,
+      roughness: 0.42, metalness: 0.62,
+      emissive: selected ? 0x222933 : 0x000000,
+      emissiveIntensity: selected ? 0.18 : 0
+    });
+    const metalLightMat = new THREE.MeshStandardMaterial({
+      color: 0xdde2e7, roughness: 0.48, metalness: 0.48
+    });
+    const darkMat = new THREE.MeshStandardMaterial({
+      color: 0x434851, roughness: 0.46, metalness: 0.62
+    });
+    const accentMat = new THREE.MeshStandardMaterial({
+      color: 0x5ac8fa, emissive: 0x5ac8fa, emissiveIntensity: 0.55,
+      roughness: 0.32, metalness: 0.4
+    });
+    const lampMat = new THREE.MeshStandardMaterial({
+      color: 0x32d27a, emissive: 0x32d27a, emissiveIntensity: 0.85
+    });
+    const lampR = Math.max(0.3, D * 0.04);
+
+    // ----- BOTTOM: long horizontal base
+    const baseW = W * 0.92;
+    const baseD = D * 0.34;
+    const baseH = H * 0.14;
+    addMesh(cigGroup, new THREE.BoxGeometry(baseW, baseH, baseD), metalMat, [0, baseH / 2, 0]);
+    // accent strip along base front edge
+    addMesh(cigGroup, new THREE.BoxGeometry(baseW * 0.96, H * 0.022, 0.36), accentMat, [0, baseH * 0.55, baseD / 2 + 0.18]);
+    // raised dark end caps on the base
+    const capW = W * 0.04;
+    addMesh(cigGroup, new THREE.BoxGeometry(capW, baseH * 1.16, baseD * 1.04), darkMat, [-baseW / 2 + capW / 2, baseH * 0.58, 0]);
+    addMesh(cigGroup, new THREE.BoxGeometry(capW, baseH * 1.16, baseD * 1.04), darkMat, [+baseW / 2 - capW / 2, baseH * 0.58, 0]);
+
+    // ----- BOTTOM-LEFT: small block-shaped connection end
+    const blockW = W * 0.11;
+    const blockH = H * 0.42;
+    const blockD = D * 0.46;
+    const blockX = -halfW + blockW / 2 + W * 0.05;
+    addMesh(cigGroup, new THREE.BoxGeometry(blockW, blockH, blockD), darkMat, [blockX, baseH + blockH / 2, 0]);
+    // block top cap
+    addMesh(cigGroup, new THREE.BoxGeometry(blockW * 1.06, H * 0.04, blockD * 1.06), metalMat, [blockX, baseH + blockH + H * 0.02, 0]);
+    // status lamp on the block
+    addMesh(cigGroup, new THREE.SphereGeometry(lampR, 12, 8), lampMat, [blockX, baseH + blockH + H * 0.07, blockD * 0.3]);
+
+    // ----- RIGHT SIDE: slender vertical support rod (twin posts for stability)
+    const rodX = halfW - W * 0.08;
+    const rodH = H * 0.74;
+    const rodR = Math.max(0.45, D * 0.028);
+    const rodOffsetZ = D * 0.06;
+    addMesh(cigGroup, new THREE.CylinderGeometry(rodR, rodR, rodH, 12), darkMat, [rodX, baseH + rodH / 2, rodOffsetZ]);
+    addMesh(cigGroup, new THREE.CylinderGeometry(rodR, rodR, rodH, 12), darkMat, [rodX, baseH + rodH / 2, -rodOffsetZ]);
+    // rod base flange
+    addMesh(cigGroup, new THREE.CylinderGeometry(rodR * 1.5, rodR * 1.5, H * 0.04, 12), metalMat, [rodX, baseH + H * 0.02, rodOffsetZ]);
+    addMesh(cigGroup, new THREE.CylinderGeometry(rodR * 1.5, rodR * 1.5, H * 0.04, 12), metalMat, [rodX, baseH + H * 0.02, -rodOffsetZ]);
+
+    // ----- RIGHT SIDE: cylindrical component beside the rod (vertical drum / pulley)
+    const cylR = D * 0.11;
+    const cylHt = H * 0.3;
+    const cylX = rodX - W * 0.06;
+    const cylY = baseH + H * 0.18 + cylHt / 2;
+    addMesh(cigGroup, new THREE.CylinderGeometry(cylR, cylR, cylHt, 18), metalLightMat, [cylX, cylY, 0]);
+    // dark ring around the middle of the drum
+    addMesh(cigGroup, new THREE.CylinderGeometry(cylR * 1.05, cylR * 1.05, H * 0.045, 18), darkMat, [cylX, cylY, 0]);
+    // brace from the rod cluster to the cylinder
+    addMesh(cigGroup, new THREE.BoxGeometry(W * 0.07, H * 0.04, D * 0.06), darkMat, [(rodX + cylX) / 2, cylY, 0]);
+
+    // ----- TOP-RIGHT: vertical rectangular mounting plate (sits on top of the rod)
+    const armY = baseH + rodH;
+    const plateW = W * 0.06;
+    const plateH = H * 0.32;
+    const plateD = D * 0.42;
+    addMesh(cigGroup, new THREE.BoxGeometry(plateW, plateH, plateD), metalMat, [rodX, armY + plateH / 2, 0]);
+    // 4 bolt heads at plate corners (facing +z front)
+    const boltR = 0.22;
+    for (let zi = -1; zi <= 1; zi += 2) {
+      for (let yi = -1; yi <= 1; yi += 2) {
+        addMesh(cigGroup, new THREE.CylinderGeometry(boltR, boltR, 0.4, 8), darkMat, [rodX + plateW / 2 + 0.18, armY + plateH / 2 + yi * plateH * 0.32, zi * plateD * 0.32], [0, 0, Math.PI / 2]);
+      }
+    }
+
+    // ----- TOP-MIDDLE: connector + mounting platform
+    const platformW = W * 0.18;
+    const platformH = H * 0.08;
+    const platformD = D * 0.5;
+    const platformX = rodX - W * 0.14;
+    addMesh(cigGroup, new THREE.BoxGeometry(platformW, platformH, platformD), metalLightMat, [platformX, armY + platformH / 2, 0]);
+    // raised mounting pads on the platform
+    for (let i = -1; i <= 1; i += 2) {
+      addMesh(cigGroup, new THREE.BoxGeometry(platformW * 0.16, platformH * 1.4, platformD * 0.16), darkMat, [platformX + i * platformW * 0.32, armY + platformH * 0.7, 0]);
+    }
+    // connector block between motor and platform
+    const connW = W * 0.05;
+    const connH = H * 0.18;
+    const connD = D * 0.22;
+    const connX = platformX - W * 0.12;
+    addMesh(cigGroup, new THREE.BoxGeometry(connW, connH, connD), darkMat, [connX, armY + connH / 2, 0]);
+
+    // ----- TOP-LEFT: square motor / transmission module
+    const motorW = W * 0.18;
+    const motorH = H * 0.34;
+    const motorD = D * 0.54;
+    const motorX = connX - W * 0.13;
+    addMesh(cigGroup, new THREE.BoxGeometry(motorW, motorH, motorD), metalMat, [motorX, armY + motorH / 2, 0]);
+    // cooling fins (4 thin horizontal strips on the motor body)
+    for (let i = 0; i < 4; i++) {
+      const fy = armY + motorH * (0.22 + i * 0.16);
+      addMesh(cigGroup, new THREE.BoxGeometry(motorW * 0.98, H * 0.014, motorD * 1.02), darkMat, [motorX, fy, 0]);
+    }
+    // round end cap (driven side)
+    addMesh(cigGroup, new THREE.CylinderGeometry(motorH * 0.34, motorH * 0.36, W * 0.025, 16), darkMat, [motorX - motorW / 2 - W * 0.013, armY + motorH / 2, 0], [0, 0, Math.PI / 2]);
+    // motor shaft toward connector
+    addMesh(cigGroup, new THREE.CylinderGeometry(motorH * 0.16, motorH * 0.16, W * 0.04, 14), darkMat, [motorX + motorW / 2 + W * 0.02, armY + motorH / 2, 0], [0, 0, Math.PI / 2]);
+
+    // ----- Underside support beam tying the top arm together (horizontal of the inverted L)
+    const beamLeft = motorX - motorW / 2;
+    const beamRight = rodX + plateW / 2;
+    const beamLen = beamRight - beamLeft;
+    const beamCx = (beamLeft + beamRight) / 2;
+    addMesh(cigGroup, new THREE.BoxGeometry(beamLen, H * 0.05, D * 0.07), darkMat, [beamCx, armY - H * 0.025, 0]);
+    // accent strip along the beam (so the inverted-L top edge glows)
+    addMesh(cigGroup, new THREE.BoxGeometry(beamLen * 0.94, H * 0.02, 0.34), accentMat, [beamCx, armY - H * 0.05, D * 0.04]);
+  } else if (variant === 'line') {
     const lineGroup = new THREE.Group();
     const alongWidth = item.width >= item.depth;
     if (!alongWidth) lineGroup.rotation.y = Math.PI / 2;
@@ -1049,8 +1188,8 @@ window.renderLayoutInspector = renderLayoutInspector = function() {
       }));
     }
     if (kind === 'workstation') {
-      grid.appendChild(createExtInspectorNumberField('台高', item.height, 2, 8, 0.1, function(value) {
-        item.height = clamp(value || item.height, 2, 8);
+      grid.appendChild(createExtInspectorNumberField('台高', item.height, 2, 14, 0.1, function(value) {
+        item.height = clamp(value || item.height, 2, 14);
         refreshExtLayoutAfterEdit();
       }));
     } else if (kind === 'rack') {
@@ -1079,7 +1218,8 @@ window.renderLayoutInspector = renderLayoutInspector = function() {
   } else if (kind === 'workstation') {
     el.appendChild(createExtInspectorSelectField('\u4f5c\u4e1a\u7c7b\u578b', getExtWorkstationVariant(item.variant), [
       { value: 'station', label: '\u5de5\u4f4d' },
-      { value: 'line', label: '\u6574\u6761\u4ea7\u7ebf' }
+      { value: 'line', label: '\u6574\u6761\u4ea7\u7ebf' },
+      { value: 'cigarette', label: '\u5377\u5305\u673a' }
     ], function(value) {
       item.variant = getExtWorkstationVariant(value);
       refreshExtLayoutAfterEdit();

@@ -282,8 +282,8 @@
         "width": 110,
         "depth": 60,
         "rotation": 0,
-        "height": 4.5,
-        "variant": "line"
+        "height": 9,
+        "variant": "cigarette"
       },
       {
         "id": "work-cig-top-02",
@@ -293,8 +293,8 @@
         "width": 110,
         "depth": 60,
         "rotation": 0,
-        "height": 4.5,
-        "variant": "line"
+        "height": 9,
+        "variant": "cigarette"
       },
       {
         "id": "work-cig-top-03",
@@ -304,8 +304,8 @@
         "width": 110,
         "depth": 60,
         "rotation": 0,
-        "height": 4.5,
-        "variant": "line"
+        "height": 9,
+        "variant": "cigarette"
       },
       {
         "id": "work-cig-top-04",
@@ -315,8 +315,8 @@
         "width": 110,
         "depth": 60,
         "rotation": 0,
-        "height": 4.5,
-        "variant": "line"
+        "height": 9,
+        "variant": "cigarette"
       },
       {
         "id": "work-cig-top-05",
@@ -326,8 +326,8 @@
         "width": 110,
         "depth": 60,
         "rotation": 0,
-        "height": 4.5,
-        "variant": "line"
+        "height": 9,
+        "variant": "cigarette"
       },
       {
         "id": "work-cig-top-06",
@@ -337,8 +337,8 @@
         "width": 110,
         "depth": 60,
         "rotation": 0,
-        "height": 4.5,
-        "variant": "line"
+        "height": 9,
+        "variant": "cigarette"
       },
       {
         "id": "work-cig-bot-01",
@@ -348,8 +348,8 @@
         "width": 110,
         "depth": 60,
         "rotation": 0,
-        "height": 4.5,
-        "variant": "line"
+        "height": 9,
+        "variant": "cigarette"
       },
       {
         "id": "work-cig-bot-02",
@@ -359,8 +359,8 @@
         "width": 110,
         "depth": 60,
         "rotation": 0,
-        "height": 4.5,
-        "variant": "line"
+        "height": 9,
+        "variant": "cigarette"
       },
       {
         "id": "work-cig-bot-03",
@@ -370,8 +370,8 @@
         "width": 110,
         "depth": 60,
         "rotation": 0,
-        "height": 4.5,
-        "variant": "line"
+        "height": 9,
+        "variant": "cigarette"
       },
       {
         "id": "work-cig-bot-04",
@@ -381,8 +381,8 @@
         "width": 110,
         "depth": 60,
         "rotation": 0,
-        "height": 4.5,
-        "variant": "line"
+        "height": 9,
+        "variant": "cigarette"
       },
       {
         "id": "work-cig-bot-05",
@@ -392,8 +392,8 @@
         "width": 110,
         "depth": 60,
         "rotation": 0,
-        "height": 4.5,
-        "variant": "line"
+        "height": 9,
+        "variant": "cigarette"
       },
       {
         "id": "work-cig-bot-06",
@@ -403,8 +403,8 @@
         "width": 110,
         "depth": 60,
         "rotation": 0,
-        "height": 4.5,
-        "variant": "line"
+        "height": 9,
+        "variant": "cigarette"
       }
     ],
     "racks": [
