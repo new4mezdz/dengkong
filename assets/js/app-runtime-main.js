@@ -2348,7 +2348,11 @@ function createLamp(lightIdx, x, z, item) {
   group.add(labelSprite.sprite);
 
   const iconY = Math.max(built.hit.y * scale, 1.2);
-  const iconSize = clamp(2.8 * Math.sqrt(scale), 2.4, 4.6);
+  const isLampIcon = item.type === 'lamp';
+  const iconBase = isLampIcon ? 21 : 2.8;
+  const iconMin = isLampIcon ? 18 : 2.4;
+  const iconMax = isLampIcon ? 35 : 4.6;
+  const iconSize = clamp(iconBase * Math.sqrt(scale), iconMin, iconMax);
   const iconSprite = createCanvasSprite(256, 256, iconSize, iconSize, iconY);
   iconSprite.sprite.userData.lightIdx = lightIdx;
   iconSprite.sprite.renderOrder = 50;

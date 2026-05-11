@@ -359,7 +359,17 @@ window.normalizeLayoutData = normalizeLayoutData = function(layout) {
 };
 
 window.ensureLayoutConfig = ensureLayoutConfig = function() {
-  config.layout = normalizeLayoutData(config.layout);
+  if (!config.layout || typeof config.layout !== 'object' || config.layout === null) {
+    config.layout = normalizeLayoutData(config.layout);
+    return;
+  }
+  // 只补齐缺失结构,不要重建已存在的 item 对象 —— 否则 inspector 闭包中抓到的引用会变成孤儿
+  ['walls', 'zones', 'pillars', 'doors', 'paths', 'workstations', 'racks', 'safetyStations'].forEach(function(key) {
+    if (!Array.isArray(config.layout[key])) config.layout[key] = [];
+  });
+  if (!config.layout.building || typeof config.layout.building !== 'object') {
+    config.layout.building = Object.assign({}, DEFAULT_BUILDING);
+  }
 };
 
 window.applyLayoutBuildingChange = applyLayoutBuildingChange = function(partial) {
@@ -1222,6 +1232,16 @@ window.renderLayoutInspector = renderLayoutInspector = function() {
       { value: 'cigarette', label: '\u5377\u5305\u673a' }
     ], function(value) {
       item.variant = getExtWorkstationVariant(value);
+      refreshExtLayoutAfterEdit();
+    }));
+    const snappedDirection = String((Math.round(getExtLayoutRotation(item.rotation) / 90) % 4) * 90);
+    el.appendChild(createExtInspectorSelectField('\u65b9\u5411', snappedDirection, [
+      { value: '0', label: '\u6a2a\u5411 (0\u00b0)' },
+      { value: '90', label: '\u7eb5\u5411 (90\u00b0)' },
+      { value: '180', label: '\u6a2a\u5411 \u53cd (180\u00b0)' },
+      { value: '270', label: '\u7eb5\u5411 \u53cd (270\u00b0)' }
+    ], function(value) {
+      item.rotation = getExtLayoutRotation(Number(value));
       refreshExtLayoutAfterEdit();
     }));
   } else if (kind === 'rack') {

@@ -877,8 +877,28 @@ canvas.addEventListener('pointerdown', function(e) {
   const inter = raycaster.intersectObjects(hits);
   if (inter.length > 0) {
     const idx = inter[0].object.userData.lightIdx;
-    dragState = { lightIdx: idx, startX: e.clientX, startY: e.clientY, moved: false };
+    dragState = { kind: 'lamp', lightIdx: idx, startX: e.clientX, startY: e.clientY, moved: false };
     controls.enabled = false; // 按在图标上就先禁用旋转
+    return;
+  }
+  // 操控模式下:允许拖动工位、货架、消防设施等布局对象
+  if (editMode && Array.isArray(layoutHitObjects) && layoutHitObjects.length > 0) {
+    const layoutInter = raycaster.intersectObjects(layoutHitObjects);
+    if (layoutInter.length > 0) {
+      const hitObj = layoutInter[0].object;
+      const info = hitObj.userData || {};
+      if (info.kind === 'workstation' || info.kind === 'rack' || info.kind === 'safety') {
+        dragState = {
+          kind: info.kind,
+          id: info.id,
+          group: hitObj.parent,
+          startX: e.clientX,
+          startY: e.clientY,
+          moved: false
+        };
+        controls.enabled = false;
+      }
+    }
   }
 });
 
@@ -903,7 +923,13 @@ canvas.addEventListener('pointermove', function(e) {
   }
   if (dragState.moved) {
     const point = getGroundPoint();
-    if (point) lamps[dragState.lightIdx].group.position.set(point.x, 0, point.z);
+    if (point) {
+      if (dragState.kind === 'lamp') {
+        lamps[dragState.lightIdx].group.position.set(point.x, 0, point.z);
+      } else if (dragState.group) {
+        dragState.group.position.set(point.x, dragState.group.position.y, point.z);
+      }
+    }
   }
 });
 
@@ -922,12 +948,23 @@ canvas.addEventListener('pointerup', function(e) {
   updateCanvasCursor();
   if (s.moved) {
     // 拖动结束 → 保存新位置
-    const p = lamps[s.lightIdx].group.position;
-    config.lights[s.lightIdx].x = Math.round(p.x * 100) / 100;
-    config.lights[s.lightIdx].z = Math.round(p.z * 100) / 100;
-    saveConfigData();
-  } else if (!editMode) {
-    // 仅在非操控模式下,点击切换开关
+    if (s.kind === 'lamp') {
+      const p = lamps[s.lightIdx].group.position;
+      config.lights[s.lightIdx].x = Math.round(p.x * 100) / 100;
+      config.lights[s.lightIdx].z = Math.round(p.z * 100) / 100;
+      saveConfigData();
+    } else if (s.kind && s.group) {
+      const item = findLayoutItem(s.kind, s.id);
+      if (item) {
+        item.x = Math.round(s.group.position.x * 100) / 100;
+        item.z = Math.round(s.group.position.z * 100) / 100;
+        setLayoutDirty(true, false);
+        saveConfigData();
+        rebuildLayoutScene();
+      }
+    }
+  } else if (!editMode && s.kind === 'lamp') {
+    // 仅在非操控模式下,点击切换开关 (只对灯有效)
     toggleLight(s.lightIdx);
   }
 });
