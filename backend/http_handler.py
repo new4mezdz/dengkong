@@ -2,6 +2,8 @@ import http.server
 import json
 from urllib.parse import urlparse
 
+from backend.weather import get_weather
+
 
 def create_handler(runtime, config_store):
     class Handler(http.server.SimpleHTTPRequestHandler):
@@ -41,6 +43,14 @@ def create_handler(runtime, config_store):
 
             if path == "/api/status":
                 self._send_json(runtime.refresh_status())
+                return
+
+            if path == "/api/usage":
+                self._send_json(runtime.usage_snapshot())
+                return
+
+            if path == "/api/weather":
+                self._send_json(get_weather())
                 return
 
             super().do_GET()

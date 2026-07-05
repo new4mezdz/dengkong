@@ -12,21 +12,23 @@ function animate() {
   else controls.update();
   if (typeof updateRoofFade === 'function') updateRoofFade();
   if (typeof updateWalkInteractionState === 'function') updateWalkInteractionState();
-  if (typeof updateIconHoverScale === 'function') updateIconHoverScale(delta);
-  renderer.render(scene, camera);
-}
-animate();
-
-if (typeof canvas !== 'undefined' && canvas) {
-  canvas.addEventListener('pointermove', setIconHoverPointer, { passive: true });
-  canvas.addEventListener('pointerdown', setIconHoverPointer, { passive: true });
-  canvas.addEventListener('pointerleave', function() { setIconHoverPointer(null); }, { passive: true });
-  canvas.addEventListener('pointercancel', function() { setIconHoverPointer(null); }, { passive: true });
+  if (typeof updateDeviceInspectorPosition === 'function') updateDeviceInspectorPosition();
+  if (!(window.__techRenderFrame && window.__techRenderFrame())) renderer.render(scene, camera);
 }
 
 const DEFAULT_DEVICE_PROTOCOL = 'modbus_tcp';
-const DEFAULT_DEVICE_CHANNEL_COUNT = 16;
+const DEFAULT_DEVICE_CHANNEL_COUNT = 32;
 const STATUS_POLL_INTERVAL_MS = 1500;
+const AUTO_RECONNECT_INTERVAL_MS = 2 * 60 * 1000;
+const POWER_ICON_SRC = './assets/img/power-icon.png';
+const powerIconImage = new Image();
+powerIconImage.onload = function() {
+  if (!Array.isArray(lamps)) return;
+  lamps.forEach(function(lamp) {
+    if (lamp && lamp.iconUsesPowerGlyph) drawDeviceButton(lamp, lamp.state);
+  });
+};
+powerIconImage.src = POWER_ICON_SRC;
 const DEVICE_PROTOCOLS = Object.freeze({
   modbus_tcp: {
     key: 'modbus_tcp',
@@ -49,6 +51,8 @@ let editingLights = [];
 let editingScenes = [];
 let editingDeviceIp = null;
 let statusPollTimer = null;
+let autoReconnectTimer = null;
+let autoReconnectInFlight = false;
 let statusRefreshInFlight = false;
 let statusRefreshQueued = false;
 let runtimeOpsInFlight = 0;
@@ -92,16 +96,17 @@ function normalizeDevice(device) {
     name: String(source.name || '未命名设备'),
     ip: String(source.ip || '').trim(),
     protocol: protocol,
-    port: clampInteger(source.port, meta.defaultPort, 1, 65535),
     channel_count: getDeviceChannelCount(source)
   };
 
   if (protocol === 'siemens_s7') {
+    next.port = clampInteger(source.port, meta.defaultPort, 1, 65535);
     next.rack = clampInteger(source.rack, 0, 0, 7);
     next.slot = clampInteger(source.slot, 1, 1, 32);
     next.db_number = clampInteger(source.db_number, 1, 1, 65535);
     next.start_byte = clampInteger(source.start_byte, 0, 0, 65535);
   } else {
+    next.port = clampInteger(source.port, meta.defaultPort, 1, 65535);
     next.unit_id = clampInteger(source.unit_id, 254, 0, 255);
   }
 
@@ -181,10 +186,26 @@ function normalizeScene(scene) {
       states[normalizedKey] = value;
     }
   });
+  // 按继电器(设备)整体控制
+  const deviceStates = {};
+  Object.keys(source.deviceStates || {}).forEach(function(ip) {
+    const key = String(ip || '').trim();
+    const value = source.deviceStates[ip];
+    if (key && (value === 'on' || value === 'off')) deviceStates[key] = value;
+  });
+  // 单独选中的灯泡, 以 "设备IP#通道" 为键 (= 实际控制的继电器输出)
+  const lightStates = {};
+  Object.keys(source.lightStates || {}).forEach(function(k) {
+    const key = String(k || '').trim();
+    const value = source.lightStates[k];
+    if (key && (value === 'on' || value === 'off')) lightStates[key] = value;
+  });
   return {
     name: String(source.name || '新场景').trim() || '新场景',
     description: String(source.description || '').trim(),
-    states: states
+    states: states,
+    deviceStates: deviceStates,
+    lightStates: lightStates
   };
 }
 
@@ -336,7 +357,6 @@ function buildDeviceFromForm(prefix) {
     name: getDeviceField(prefix, 'name') ? getDeviceField(prefix, 'name').value : '未命名设备',
     ip: getDeviceField(prefix, 'ip') ? getDeviceField(prefix, 'ip').value.trim() : '',
     protocol: protocol,
-    port: parseIntOr(getDeviceField(prefix, 'port') ? getDeviceField(prefix, 'port').value : '', meta.defaultPort),
     channel_count: clampInteger(
       getDeviceField(prefix, 'channel-count') ? getDeviceField(prefix, 'channel-count').value : DEFAULT_DEVICE_CHANNEL_COUNT,
       DEFAULT_DEVICE_CHANNEL_COUNT,
@@ -346,11 +366,13 @@ function buildDeviceFromForm(prefix) {
   };
 
   if (protocol === 'siemens_s7') {
+    device.port = parseIntOr(getDeviceField(prefix, 'port') ? getDeviceField(prefix, 'port').value : '', meta.defaultPort);
     device.rack = parseIntOr(getDeviceField(prefix, 'rack') ? getDeviceField(prefix, 'rack').value : '', 0);
     device.slot = parseIntOr(getDeviceField(prefix, 'slot') ? getDeviceField(prefix, 'slot').value : '', 1);
     device.db_number = parseIntOr(getDeviceField(prefix, 'db-number') ? getDeviceField(prefix, 'db-number').value : '', 1);
     device.start_byte = parseIntOr(getDeviceField(prefix, 'start-byte') ? getDeviceField(prefix, 'start-byte').value : '', 0);
   } else {
+    device.port = parseIntOr(getDeviceField(prefix, 'port') ? getDeviceField(prefix, 'port').value : '', meta.defaultPort);
     device.unit_id = parseIntOr(getDeviceField(prefix, 'unit') ? getDeviceField(prefix, 'unit').value : '', 254);
   }
 
@@ -359,16 +381,29 @@ function buildDeviceFromForm(prefix) {
 
 function syncProtocolForm(prefix) {
   const protocolInput = getDeviceField(prefix, 'protocol');
+  const ipInput = getDeviceField(prefix, 'ip');
   const portInput = getDeviceField(prefix, 'port');
   const unitInput = getDeviceField(prefix, 'unit');
   const selectedProtocol = getDeviceProtocolMeta(protocolInput ? protocolInput.value : DEFAULT_DEVICE_PROTOCOL);
   const prefixMarker = prefix === 'setup-device' ? 'setup-device:' : '';
+  const endpointLabel = document.getElementById(getDeviceFieldId(prefix, 'endpoint-label'));
 
-  if (portInput) {
+  if (endpointLabel) {
+    endpointLabel.textContent = prefix === 'setup-device' ? '设备 IP 地址' : '设备 IP 地址(用作唯一标识)';
+  }
+
+  if (ipInput) {
+    const value = String(ipInput.value || '').trim();
+    if (!value || /^COM\d+$/i.test(value)) {
+      ipInput.value = '192.168.1.100';
+    }
+  }
+
+  if (portInput && selectedProtocol.defaultPort) {
     const currentPort = parseIntOr(portInput.value, selectedProtocol.defaultPort);
     const knownDefaultPorts = Object.keys(DEVICE_PROTOCOLS).map(function(key) {
       return DEVICE_PROTOCOLS[key].defaultPort;
-    });
+    }).filter(function(value) { return Number.isFinite(value); });
     if (!portInput.value || knownDefaultPorts.indexOf(currentPort) >= 0) {
       portInput.value = String(selectedProtocol.defaultPort);
     }
@@ -466,6 +501,30 @@ function endRuntimeOperation() {
   }
 }
 
+async function runAutoReconnectCheck() {
+  if (autoReconnectInFlight || statusRefreshInFlight || runtimeOpsInFlight > 0 || batchAllInFlight) return;
+  const offlineDevices = (config.devices || []).filter(function(device) {
+    return !(deviceStatus[device.ip] && deviceStatus[device.ip].connected);
+  });
+  if (offlineDevices.length === 0) return;
+
+  autoReconnectInFlight = true;
+  try {
+    for (const device of offlineDevices) {
+      if (deviceStatus[device.ip] && deviceStatus[device.ip].connected) continue;
+      await connectDevice(device, { silent: true });
+    }
+  } finally {
+    autoReconnectInFlight = false;
+  }
+}
+
+function startAutoReconnectCheck() {
+  if (autoReconnectTimer) clearInterval(autoReconnectTimer);
+  autoReconnectTimer = setInterval(runAutoReconnectCheck, AUTO_RECONNECT_INTERVAL_MS);
+  setTimeout(runAutoReconnectCheck, 0);
+}
+
 async function saveConfigData() {
   config.devices = normalizeDevices(config.devices);
   config.lights = (config.lights || []).map(normalizeLight);
@@ -499,6 +558,7 @@ async function loadConfig() {
     syncProtocolForm('in');
     syncProtocolForm('setup-device');
     scheduleStatusPoll(0);
+    startAutoReconnectCheck();
     return true;
   } catch (error) {
     showToast('error', '加载失败', getFriendlyMessage(getErrorMessage(error, '未知错误')));
@@ -619,12 +679,26 @@ async function handleProjectFileSelection(event) {
 }
 
 function buildSceneStateSummary(scene) {
+  const parts = [];
   const states = (scene && scene.states) || {};
-  const keys = Object.keys(states);
-  if (keys.length === 0) return '暂未配置分组目标';
-  return keys.map(function(key) {
-    return getGroupLabel(key) + ' ' + (states[key] === 'on' ? '开启' : '关闭');
-  }).join(' · ');
+  Object.keys(states).forEach(function(key) {
+    parts.push(getGroupLabel(key) + ' ' + (states[key] === 'on' ? '开启' : '关闭'));
+  });
+  const deviceStates = (scene && scene.deviceStates) || {};
+  Object.keys(deviceStates).forEach(function(ip) {
+    parts.push(getDeviceDisplayName(ip) + ' ' + (deviceStates[ip] === 'on' ? '开启' : '关闭'));
+  });
+  const lightStates = (scene && scene.lightStates) || {};
+  const lightKeys = Object.keys(lightStates);
+  if (lightKeys.length > 0) {
+    const onCount = lightKeys.filter(function(k) { return lightStates[k] === 'on'; }).length;
+    const segs = [];
+    if (onCount) segs.push('开 ' + onCount);
+    if (lightKeys.length - onCount) segs.push('关 ' + (lightKeys.length - onCount));
+    parts.push('单独选灯 ' + segs.join('/'));
+  }
+  if (parts.length === 0) return '暂未配置控制目标';
+  return parts.join(' · ');
 }
 
 function getGroupStats() {
@@ -1358,6 +1432,8 @@ function applyStatus() {
   });
   updateCounts();
   refreshExperiencePanels();
+  if (typeof refreshDeviceInspectorState === 'function') refreshDeviceInspectorState();
+  if (typeof syncControlView === 'function') syncControlView();
 }
 
 function updateCounts() {
@@ -1390,8 +1466,29 @@ function showLightsModal() {
   }
   clearNotice('lights-modal-notice');
   editingLights = config.lights.map(normalizeLight);
+  const batchType = document.getElementById('lc-batch-type');
+  if (batchType) batchType.innerHTML = getTypeOptionsHtml(DEFAULT_ITEM_TYPE);
+  refreshBindToolUI();
   renderLightsConfig();
   document.getElementById('lights-modal').classList.add('show');
+}
+
+// 刷新"顺序绑定继电器"工具的设备下拉与默认编号范围
+function refreshBindToolUI() {
+  const deviceSelect = document.getElementById('lc-bind-device');
+  if (deviceSelect) {
+    const prev = deviceSelect.value;
+    deviceSelect.innerHTML = config.devices.map(function(device) {
+      return '<option value="' + escapeHtml(device.ip) + '">' +
+        escapeHtml((device.name || device.ip) + ' · ' + getDeviceChannelCount(device) + '路') + '</option>';
+    }).join('');
+    if (prev && config.devices.some(function(d) { return d.ip === prev; })) deviceSelect.value = prev;
+  }
+  const total = editingLights.length;
+  const fromInput = document.getElementById('lc-bind-from');
+  const toInput = document.getElementById('lc-bind-to');
+  if (fromInput && !fromInput.value) fromInput.value = total ? 1 : '';
+  if (toInput && !toInput.value) toInput.value = total || '';
 }
 
 function hideLightsModal() {
@@ -1460,6 +1557,7 @@ function renderLightsConfig() {
       ? '场景位置：X ' + formatNum(light.x) + ' / Z ' + formatNum(light.z)
       : '场景位置：按设备分组自动排布';
     row.innerHTML =
+      '<span class="lc-idx" title="电器编号">' + (index + 1) + '</span>' +
       '<input class="lc-name" type="text" placeholder="电器名称" value="' + escapeHtml(light.name || '') + '">' +
       '<select class="lc-type">' + getTypeOptionsHtml(light.type) + '</select>' +
       '<input class="lc-size" type="number" min="0.4" max="3" step="0.1" value="' + light.scale + '" title="模型缩放">' +
@@ -1557,6 +1655,192 @@ function addLight() {
     channel: channel
   });
   renderLightsConfig();
+}
+
+// 收集所有设备上仍空闲的通道 (按设备顺序), 最多 limit 个
+function collectFreeChannelSlots(limit) {
+  const used = {};
+  editingLights.forEach(function(light) {
+    if (!used[light.device_ip]) used[light.device_ip] = {};
+    used[light.device_ip][light.channel] = true;
+  });
+  const slots = [];
+  for (let di = 0; di < config.devices.length; di++) {
+    const device = config.devices[di];
+    const channelCount = getDeviceChannelCount(device);
+    const usedSet = used[device.ip] || {};
+    for (let ch = 0; ch < channelCount; ch++) {
+      if (!usedSet[ch]) {
+        slots.push({ device_ip: device.ip, channel: ch });
+        if (slots.length >= limit) return slots;
+      }
+    }
+  }
+  return slots;
+}
+
+function readBatchInt(id, fallback, min, max) {
+  const node = document.getElementById(id);
+  let value = node ? parseInt(node.value, 10) : NaN;
+  if (!Number.isFinite(value)) value = fallback;
+  return clamp(Math.round(value), min, max);
+}
+
+// 读取可空的整数输入: 留空或非正数返回 0 (表示"自动")
+function readBatchOptionalInt(id, min, max) {
+  const node = document.getElementById(id);
+  const raw = node ? String(node.value).trim() : '';
+  if (!raw) return 0;
+  const value = parseInt(raw, 10);
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return clamp(value, min, max);
+}
+
+// 批量排布电器: 按"总数"在厂房可用区域内生成对齐、均匀的网格。
+// 每排数量可手动指定; 留空则按厂房宽深比自动取近似方格, 保证几百个也均匀不挤成一团。
+function addLightRow() {
+  if (config.devices.length === 0) {
+    showToast('warn', '还没有设备', '批量摆放电器前, 请先添加一台控制设备。');
+    return;
+  }
+
+  const requested = readBatchInt('lc-batch-count', 8, 1, 1000);
+  const colsOverride = readBatchOptionalInt('lc-batch-percol', 1, 200);
+  const typeSelect = document.getElementById('lc-batch-type');
+  const type = typeSelect && ITEM_TYPES[typeSelect.value] ? typeSelect.value : DEFAULT_ITEM_TYPE;
+  const groupInput = document.getElementById('lc-batch-group');
+  const group = normalizeGroupName(groupInput ? groupInput.value : '');
+
+  const slots = collectFreeChannelSlots(requested);
+  if (slots.length === 0) {
+    setNotice('lights-modal-notice', 'warn', '通道已用尽', '所有设备的通道都已被占用, 无法再批量添加电器。');
+    return;
+  }
+  const makeCount = Math.min(requested, slots.length);
+
+  // 厂房内可用区域 (四周留边距, 不贴墙)
+  const edgeX = clamp(BUILDING.width * 0.06, 3 * SCALE, 9 * SCALE);
+  const edgeZ = clamp(BUILDING.depth * 0.08, 2.5 * SCALE, 7 * SCALE);
+  const usableW = Math.max(2, BUILDING.width - edgeX * 2);
+  const usableD = Math.max(2, BUILDING.depth - edgeZ * 2);
+
+  // 列数: 优先用户指定; 否则按可用区域的宽深比自动取近似方格, 让横向/纵向间隔都尽量均匀
+  let cols = colsOverride > 0
+    ? colsOverride
+    : Math.round(Math.sqrt(makeCount * (usableW / usableD)));
+  cols = clamp(cols || 1, 1, makeCount);
+  const rows = Math.ceil(makeCount / cols);
+
+  // 等距网格: 所有灯都落在同样的列/排坐标上; 最后一排不满时仍对齐到相同的列, 保持整齐
+  const xPitch = cols > 1 ? usableW / (cols - 1) : 0;
+  const zPitch = rows > 1 ? usableD / (rows - 1) : 0;
+  const x0 = cols > 1 ? -usableW / 2 : 0;
+  const z0 = rows > 1 ? -usableD / 2 : 0;
+
+  const baseLabel = group || getItemMeta(type).label;
+  const startNo = editingLights.length + 1;
+
+  for (let made = 0; made < makeCount; made++) {
+    const r = Math.floor(made / cols);
+    const c = made % cols;
+    const slot = slots[made];
+    const point = clampFloorPoint({ x: x0 + c * xPitch, z: z0 + r * zPitch });
+    const light = {
+      name: baseLabel + ' ' + (startNo + made),
+      type: type,
+      scale: 1,
+      device_ip: slot.device_ip,
+      channel: slot.channel,
+      x: Math.round(point.x * 100) / 100,
+      z: Math.round(point.z * 100) / 100
+    };
+    if (group) light.group = group;
+    editingLights.push(light);
+  }
+
+  renderLightsConfig();
+
+  const gridText = cols + ' 列 × ' + rows + ' 排';
+  const minPitch = Math.min(xPitch || Infinity, zPitch || Infinity);
+  const denseHint = (minPitch !== Infinity && minPitch < 12)
+    ? ' 数量较多、间隔已偏密, 如仍觉拥挤可调大厂房尺寸或分批放置。'
+    : '';
+  if (makeCount < requested) {
+    setNotice('lights-modal-notice', 'warn', '已部分生成',
+      '可用通道只够添加 ' + makeCount + ' / ' + requested + ' 个, 已按 ' + gridText + ' 均匀对齐排布, 保存后生效。' + denseHint);
+  } else {
+    clearNotice('lights-modal-notice');
+    showToast('success', '已批量排布',
+      '新增 ' + makeCount + ' 个' + getItemMeta(type).label + ' (' + gridText + '), 已自动对齐、均匀间隔, 保存后生效。' + denseHint);
+  }
+}
+
+// 按编号范围把电器顺序绑定到某个继电器: 编号 from..to 依次占用该设备 startChannel 起的通道
+function bindLightRange() {
+  if (!editingLights.length) {
+    setNotice('lights-modal-notice', 'warn', '没有可绑定的电器', '请先添加或批量生成电器, 再做顺序绑定。');
+    return;
+  }
+  if (config.devices.length === 0) {
+    showToast('warn', '还没有设备', '请先添加一台继电器设备。');
+    return;
+  }
+
+  const total = editingLights.length;
+  let from = readBatchInt('lc-bind-from', 1, 1, total);
+  let to = readBatchInt('lc-bind-to', total, 1, total);
+  if (from > to) { const tmp = from; from = to; to = tmp; }
+
+  const deviceSelect = document.getElementById('lc-bind-device');
+  const deviceIp = deviceSelect && deviceSelect.value ? deviceSelect.value : (config.devices[0] && config.devices[0].ip);
+  const device = getDeviceByIp(deviceIp);
+  if (!device) {
+    setNotice('lights-modal-notice', 'warn', '请选择目标继电器', '请先在下拉里选择要绑定的继电器设备。');
+    return;
+  }
+  const channelCount = getDeviceChannelCount(device);
+  // 输入框是 1 基(与界面"通道01"一致), 内部通道是 0 基
+  const startChannel = readBatchInt('lc-bind-start', 1, 1, channelCount) - 1;
+
+  let bound = 0;
+  let overflow = 0;
+  for (let n = 0; n < (to - from + 1); n++) {
+    const channel = startChannel + n;
+    if (channel >= channelCount) { overflow += 1; continue; }
+    const light = editingLights[(from - 1) + n];
+    light.device_ip = deviceIp;
+    light.channel = channel;
+    bound += 1;
+  }
+
+  renderLightsConfig();
+  refreshBindToolUI();
+
+  // 绑定后检测整组是否出现"同设备同通道"冲突 (比如和范围外已有的电器撞了)
+  const seen = {};
+  let conflicts = 0;
+  editingLights.forEach(function(light) {
+    const key = light.device_ip + '#' + light.channel;
+    if (seen[key]) conflicts += 1;
+    seen[key] = true;
+  });
+  const conflictHint = conflicts > 0
+    ? ' 注意: 当前有 ' + conflicts + ' 处"同设备同通道"冲突, 保存前请调整(换通道或换设备)。'
+    : '';
+
+  const deviceLabel = device.name || deviceIp;
+  if (overflow > 0) {
+    setNotice('lights-modal-notice', 'warn', '已绑定(部分超出容量)',
+      '已把编号 ' + from + '–' + (from + bound - 1) + ' 顺序绑定到「' + deviceLabel + '」通道 ' + (startChannel + 1) +
+      ' 起; 还有 ' + overflow + ' 个超出该设备的 ' + channelCount + ' 路, 请改绑到下一块继电器。' + conflictHint);
+  } else if (conflicts > 0) {
+    setNotice('lights-modal-notice', 'warn', '已绑定(有通道冲突)',
+      '编号 ' + from + '–' + to + ' 已绑定到「' + deviceLabel + '」通道 ' + (startChannel + 1) + '–' + (startChannel + bound) + '。' + conflictHint);
+  } else {
+    clearNotice('lights-modal-notice');
+    showToast('success', '已顺序绑定',
+      '编号 ' + from + '–' + to + ' 已按顺序绑定到「' + deviceLabel + '」, 通道 ' + (startChannel + 1) + '–' + (startChannel + bound) + '。保存后生效。');
+  }
 }
 
 async function saveLights() {
@@ -1704,10 +1988,14 @@ function applyScene(sceneIndex) {
   if (!scene) return Promise.resolve({ ok: false });
 
   const states = scene.states || {};
+  const deviceStates = scene.deviceStates || {};
+  const lightStates = scene.lightStates || {};
   const assignments = [];
-  (config.lights || []).forEach(function(light) {
-    const groupKey = getLightGroupKey(light);
-    const state = states[groupKey];
+  (config.lights || []).forEach(function(light, idx) {
+    // 优先级: 单独选灯(按编号) > 按继电器 > 按分组
+    let state = lightStates[String(idx + 1)];
+    if (state !== 'on' && state !== 'off') state = deviceStates[light.device_ip];
+    if (state !== 'on' && state !== 'off') state = states[getLightGroupKey(light)];
     if (state !== 'on' && state !== 'off') return;
     assignments.push({
       device_ip: light.device_ip,
@@ -1719,7 +2007,7 @@ function applyScene(sceneIndex) {
   return applyLightAssignments(assignments, {
     title: scene.name,
     successBody: '场景预设已应用。',
-    emptyBody: '当前场景没有命中任何现有电器分组。'
+    emptyBody: '当前场景没有命中任何电器。'
   });
 }
 
@@ -1737,6 +2025,56 @@ function showScenesModal() {
 function hideScenesModal() {
   clearNotice('scenes-modal-notice');
   document.getElementById('scenes-modal').classList.remove('show');
+}
+
+// 解析编号范围字符串, 如 "1-10, 15, 20-25" -> [1..10,15,20..25] (1 基, 去重, 限定 1..max)
+function parseSceneNumberRanges(str, max) {
+  const out = new Set();
+  String(str || '').split(/[,，;；\s]+/).forEach(function(part) {
+    if (!part) return;
+    const seg = part.split(/[-–~～]/);
+    if (seg.length === 2) {
+      let a = parseInt(seg[0], 10);
+      let b = parseInt(seg[1], 10);
+      if (Number.isFinite(a) && Number.isFinite(b)) {
+        if (a > b) { const t = a; a = b; b = t; }
+        for (let i = a; i <= b; i++) if (i >= 1 && i <= max) out.add(i);
+      }
+    } else {
+      const n = parseInt(part, 10);
+      if (Number.isFinite(n) && n >= 1 && n <= max) out.add(n);
+    }
+  });
+  return Array.from(out).sort(function(a, b) { return a - b; });
+}
+
+// 渲染某个场景"单独选灯"的已选标签
+function renderSceneLightChips(sceneIndex, container) {
+  const scene = editingScenes[sceneIndex];
+  if (!scene || !container) return;
+  const lightStates = scene.lightStates || {};
+  container.innerHTML = '';
+  const keys = Object.keys(lightStates);
+  if (keys.length === 0) {
+    container.innerHTML = '<span class="scene-ind-empty">未单独指定灯泡</span>';
+    return;
+  }
+  keys.sort(function(a, b) { return (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0); });
+  keys.forEach(function(key) {
+    const stateVal = lightStates[key];
+    const num = parseInt(key, 10);
+    const light = (config.lights || [])[num - 1];
+    const label = light ? ('#' + num + ' ' + (light.name || '')) : ('#' + key);
+    const chip = document.createElement('span');
+    chip.className = 'scene-ind-chip ' + (stateVal === 'on' ? 'on' : 'off');
+    chip.innerHTML = '<span class="scene-ind-chip-txt">' + escapeHtml(label) + ' · ' + (stateVal === 'on' ? '开' : '关') + '</span>' +
+      '<button type="button" title="移除">×</button>';
+    chip.querySelector('button').addEventListener('click', function() {
+      delete editingScenes[sceneIndex].lightStates[key];
+      renderSceneLightChips(sceneIndex, container);
+    });
+    container.appendChild(chip);
+  });
 }
 
 function renderScenesConfig() {
@@ -1769,8 +2107,21 @@ function renderScenesConfig() {
     meta.value = scene.description || '';
     row.appendChild(meta);
 
+    editingScenes[index].states = editingScenes[index].states || {};
+    editingScenes[index].deviceStates = editingScenes[index].deviceStates || {};
+    editingScenes[index].lightStates = editingScenes[index].lightStates || {};
+
+    // ---- 按分组 ----
+    const groupLabel = document.createElement('div');
+    groupLabel.className = 'scene-sub-label';
+    groupLabel.textContent = '按分组';
+    row.appendChild(groupLabel);
+
     const grid = document.createElement('div');
     grid.className = 'scene-grid';
+    if (groupKeys.length === 0) {
+      grid.innerHTML = '<div class="scene-ind-empty">还没有分组</div>';
+    }
     groupKeys.forEach(function(groupKey) {
       const item = document.createElement('div');
       item.className = 'scene-grid-item';
@@ -1790,6 +2141,79 @@ function renderScenesConfig() {
       grid.appendChild(item);
     });
     row.appendChild(grid);
+
+    // ---- 按继电器: 整块板管理的灯一起控制 ----
+    const devLabel = document.createElement('div');
+    devLabel.className = 'scene-sub-label';
+    devLabel.textContent = '按继电器（整块板的灯一起控制）';
+    row.appendChild(devLabel);
+
+    const devGrid = document.createElement('div');
+    devGrid.className = 'scene-grid';
+    const deviceList = config.devices || [];
+    if (deviceList.length === 0) {
+      devGrid.innerHTML = '<div class="scene-ind-empty">还没有继电器设备</div>';
+    }
+    deviceList.forEach(function(device) {
+      const item = document.createElement('div');
+      item.className = 'scene-grid-item';
+      item.innerHTML =
+        '<label>' + escapeHtml(getDeviceDisplayName(device)) + '</label>' +
+        '<select>' +
+          '<option value="keep">保持不变</option>' +
+          '<option value="on">开启</option>' +
+          '<option value="off">关闭</option>' +
+        '</select>';
+      const select = item.querySelector('select');
+      select.value = editingScenes[index].deviceStates[device.ip] || 'keep';
+      select.addEventListener('change', function() {
+        if (select.value === 'keep') delete editingScenes[index].deviceStates[device.ip];
+        else editingScenes[index].deviceStates[device.ip] = select.value;
+      });
+      devGrid.appendChild(item);
+    });
+    row.appendChild(devGrid);
+
+    // ---- 单独选灯: 按编号挑选灯泡, 优先级最高 ----
+    const indLabel = document.createElement('div');
+    indLabel.className = 'scene-sub-label';
+    indLabel.textContent = '单独选灯（按编号，优先级最高）';
+    row.appendChild(indLabel);
+
+    const indRow = document.createElement('div');
+    indRow.className = 'scene-ind-row';
+    indRow.innerHTML =
+      '<input type="text" class="scene-ind-range" placeholder="编号, 如 1-10, 15, 20-25">' +
+      '<select class="scene-ind-state"><option value="on">开启</option><option value="off">关闭</option></select>' +
+      '<button type="button" class="mini-btn add">加入</button>' +
+      '<button type="button" class="mini-btn ghost">清空单选</button>';
+    row.appendChild(indRow);
+
+    const chips = document.createElement('div');
+    chips.className = 'scene-ind-chips';
+    row.appendChild(chips);
+    renderSceneLightChips(index, chips);
+
+    indRow.querySelector('.mini-btn.add').addEventListener('click', function() {
+      const rangeStr = indRow.querySelector('.scene-ind-range').value;
+      const stateVal = indRow.querySelector('.scene-ind-state').value;
+      const lights = config.lights || [];
+      const nums = parseSceneNumberRanges(rangeStr, lights.length);
+      if (nums.length === 0) {
+        setNotice('scenes-modal-notice', 'warn', '没有识别到编号', '请输入电器编号, 如 1-10, 15, 20-25。');
+        return;
+      }
+      nums.forEach(function(num) {
+        if (lights[num - 1]) editingScenes[index].lightStates[String(num)] = stateVal;
+      });
+      clearNotice('scenes-modal-notice');
+      indRow.querySelector('.scene-ind-range').value = '';
+      renderSceneLightChips(index, chips);
+    });
+    indRow.querySelector('.mini-btn.ghost').addEventListener('click', function() {
+      editingScenes[index].lightStates = {};
+      renderSceneLightChips(index, chips);
+    });
 
     head.querySelector('.scene-name-input').addEventListener('input', function(event) {
       editingScenes[index].name = event.target.value;
@@ -1818,7 +2242,9 @@ function addScene() {
   editingScenes.push({
     name: '新场景',
     description: '',
-    states: states
+    states: states,
+    deviceStates: {},
+    lightStates: {}
   });
   renderScenesConfig();
 }
@@ -1829,10 +2255,12 @@ async function saveScenes() {
     return !!scene.name;
   });
   const invalid = normalized.some(function(scene) {
-    return Object.keys(scene.states || {}).length === 0;
+    return Object.keys(scene.states || {}).length === 0
+      && Object.keys(scene.deviceStates || {}).length === 0
+      && Object.keys(scene.lightStates || {}).length === 0;
   });
   if (invalid) {
-    setNotice('scenes-modal-notice', 'warn', '场景缺少目标', '每个场景至少要让一个分组开启或关闭。');
+    setNotice('scenes-modal-notice', 'warn', '场景缺少目标', '每个场景至少要让一个分组、继电器或单独选中的灯泡开启或关闭。');
     return;
   }
 
@@ -1842,6 +2270,7 @@ async function saveScenes() {
     if (result.ok) {
       hideScenesModal();
       refreshExperiencePanels();
+      if (typeof syncControlView === 'function') syncControlView();
       showToast('success', '场景已保存', '当前共有 ' + config.scenes.length + ' 个预设可用。');
     } else {
       setNotice('scenes-modal-notice', 'error', '保存失败', getFriendlyMessage(result.error || '未知错误', 'save'));
@@ -2128,56 +2557,18 @@ function refreshLabelToggleUI() {
   btn.title = labelsPinned ? '标签已常显' : '点击后显示标签';
 }
 
-const ICON_HOVER_MAX_MULT = 1.85;
-const ICON_HOVER_INNER_PX = 36;
-const ICON_HOVER_OUTER_PX = 180;
-const _iconHoverProbe = new THREE.Vector3();
-const _iconHoverPointer = { x: 0, y: 0, valid: false };
-
-function setIconHoverPointer(e) {
-  if (!e) { _iconHoverPointer.valid = false; return; }
-  _iconHoverPointer.x = e.clientX;
-  _iconHoverPointer.y = e.clientY;
-  _iconHoverPointer.valid = true;
-}
-
-function updateIconHoverScale(delta) {
+function updateIconHoverScale() {
   if (!Array.isArray(lamps) || !lamps.length) return;
-  const canvasEl = renderer && renderer.domElement;
-  if (!canvasEl) return;
-  const rect = canvasEl.getBoundingClientRect();
-  const draggingMoved = (typeof dragState !== 'undefined') && dragState && dragState.moved;
-  const blocked = (typeof walkMode !== 'undefined' && walkMode)
-    || (typeof layoutMode !== 'undefined' && layoutMode)
-    || (typeof lightPlacementIndex !== 'undefined' && lightPlacementIndex != null)
-    || draggingMoved;
-  const pointerActive = _iconHoverPointer.valid && !blocked;
-  const px = pointerActive ? _iconHoverPointer.x - rect.left : 0;
-  const py = pointerActive ? _iconHoverPointer.y - rect.top : 0;
-  const lerp = 1 - Math.exp(-Math.max(delta, 0) * 16);
-
   for (let i = 0; i < lamps.length; i++) {
     const lamp = lamps[i];
     const sprite = lamp && lamp.iconSprite;
-    if (!sprite || !lamp.iconBaseScale) continue;
-    let mult = 1;
-    if (pointerActive) {
-      sprite.getWorldPosition(_iconHoverProbe);
-      _iconHoverProbe.project(camera);
-      if (_iconHoverProbe.z >= -1 && _iconHoverProbe.z <= 1) {
-        const sx = (_iconHoverProbe.x * 0.5 + 0.5) * rect.width;
-        const sy = (-_iconHoverProbe.y * 0.5 + 0.5) * rect.height;
-        const dist = Math.hypot(sx - px, sy - py);
-        const span = ICON_HOVER_OUTER_PX - ICON_HOVER_INNER_PX;
-        const t = span > 0 ? clamp(1 - (dist - ICON_HOVER_INNER_PX) / span, 0, 1) : 0;
-        mult = 1 + t * (ICON_HOVER_MAX_MULT - 1);
-      }
-    }
-    const target = lamp.iconBaseScale * mult;
-    const current = lamp.iconCurrentScale != null ? lamp.iconCurrentScale : lamp.iconBaseScale;
-    const next = current + (target - current) * lerp;
-    lamp.iconCurrentScale = next;
-    sprite.scale.set(next, next, 1);
+    const baseX = lamp.iconBaseScaleX || lamp.iconBaseScale;
+    const baseY = lamp.iconBaseScaleY || lamp.iconBaseScale;
+    if (!sprite || !baseX || !baseY) continue;
+    lamp.iconCurrentScaleX = baseX;
+    lamp.iconCurrentScaleY = baseY;
+    lamp.iconCurrentScale = Math.max(baseX, baseY);
+    sprite.scale.set(baseX, baseY, 1);
   }
 }
 
@@ -2191,6 +2582,42 @@ function hexToRgba(hex, alpha) {
   return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
 }
 
+function drawPowerGlyph(ctx, cx, cy, boxW, boxH, on) {
+  const size = Math.min(boxW * 0.42, boxH * 0.86);
+  const radius = size * 0.34;
+  const lineWidth = Math.max(4, size * 0.16);
+  const alpha = on ? 0.95 : 0.72;
+
+  ctx.save();
+  ctx.translate(cx, cy + size * 0.02);
+  ctx.lineWidth = lineWidth;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = 'rgba(255,255,255,' + alpha + ')';
+  ctx.shadowColor = 'rgba(255,255,255,' + (on ? 0.46 : 0.22) + ')';
+  ctx.shadowBlur = size * 0.08;
+
+  ctx.beginPath();
+  ctx.arc(0, size * 0.08, radius, Math.PI * 0.72, Math.PI * 2.28);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(0, -radius * 1.18);
+  ctx.lineTo(0, -radius * 0.12);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawPowerIconImage(ctx, cx, cy, boxW, boxH, on) {
+  if (!powerIconImage.complete || !powerIconImage.naturalWidth) return false;
+  const size = Math.min(boxH * 0.9, boxW * 0.32);
+  ctx.save();
+  ctx.globalAlpha = on ? 0.92 : 0.72;
+  ctx.drawImage(powerIconImage, cx - size / 2, cy - size / 2, size, size);
+  ctx.restore();
+  return true;
+}
+
 function drawDeviceButton(lamp, on) {
   if (!lamp.iconCanvas) return;
   const ctx = lamp.iconCanvas.getContext('2d');
@@ -2199,36 +2626,89 @@ function drawDeviceButton(lamp, on) {
   const H = lamp.iconCanvas.height;
   const cx = W / 2;
   const cy = H / 2;
-  const r = Math.min(W, H) / 2 - 22;
-
   ctx.clearRect(0, 0, W, H);
 
+  // 灯泡按钮保持屏幕横向, 不随场景旋转。
+  const powerButton = !!lamp.iconUsesPowerGlyph;
+  const portrait = !!lamp.iconPortrait;
+  const RATIO = 4;
+  const margin = 12;
+  let bw;
+  let bh;
+  if (portrait) {
+    bh = H - margin * 2;
+    bw = bh / RATIO;
+    if (bw > W - margin * 2) {
+      bw = W - margin * 2;
+      bh = bw * RATIO;
+    }
+  } else {
+    bw = W - margin * 2;
+    bh = bw / RATIO;
+    if (bh > H - margin * 2) {
+      bh = H - margin * 2;
+      bw = bh * RATIO;
+    }
+  }
+  const bx = cx - bw / 2;
+  const by = cy - bh / 2;
+  const bRadius = Math.min(22, bh / 2);
+
   if (on) {
-    const grad = ctx.createRadialGradient(cx, cy, r * 0.55, cx, cy, r + 32);
-    grad.addColorStop(0, hexToRgba(meta.accent, 0.55));
+    const grad = ctx.createRadialGradient(cx, cy, bh * 0.3, cx, cy, bw * 0.62);
+    grad.addColorStop(0, powerButton ? 'rgba(15,82,186,0.20)' : hexToRgba(meta.accent, 0.28));
     grad.addColorStop(1, hexToRgba(meta.accent, 0));
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
   }
 
   ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.fillStyle = on ? 'rgba(18,18,22,0.96)' : 'rgba(20,20,24,0.88)';
+  ctx.roundRect(bx, by, bw, bh, bRadius);
+  ctx.fillStyle = powerButton
+    ? (on ? 'rgba(15,82,186,0.44)' : 'rgba(15,82,186,0.30)')
+    : (on ? 'rgba(126,130,138,0.58)' : 'rgba(110,114,122,0.44)');
   ctx.fill();
 
   ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.lineWidth = on ? 8 : 5;
-  ctx.strokeStyle = on ? meta.accent : 'rgba(255,255,255,0.34)';
+  ctx.roundRect(bx, by, bw, bh, bRadius);
+  ctx.lineWidth = on ? 7 : 4;
+  ctx.strokeStyle = powerButton
+    ? (on ? 'rgba(15,82,186,0.78)' : 'rgba(15,82,186,0.46)')
+    : (on ? hexToRgba(meta.accent, 0.62) : 'rgba(255,255,255,0.22)');
   ctx.stroke();
 
-  ctx.font = 'bold 116px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = on ? '#ffffff' : 'rgba(235,235,240,0.86)';
-  ctx.fillText(meta.icon || '·', cx, cy + 6);
+  if (powerButton) {
+    if (!drawPowerIconImage(ctx, cx, cy, bw, bh, on)) {
+      drawPowerGlyph(ctx, cx, cy, bw, bh, on);
+    }
+  } else {
+    const glyph = Math.floor(Math.min(bw, bh) * 0.72);
+    ctx.font = 'bold ' + glyph + 'px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = on ? 'rgba(255,255,255,0.76)' : 'rgba(235,235,240,0.62)';
+    ctx.fillText(meta.icon || '·', cx, cy + 2);
+  }
 
   lamp.iconTex.needsUpdate = true;
+}
+
+function createCanvasPlane(width, height, scaleX, scaleY, y) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const tex = new THREE.CanvasTexture(canvas);
+  const mat = new THREE.MeshBasicMaterial({
+    map: tex,
+    transparent: true,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    depthTest: false
+  });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(scaleX, scaleY), mat);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = y;
+  return { canvas, tex, sprite: mesh };
 }
 
 function drawLabel(lamp, on) {
@@ -2295,6 +2775,239 @@ function toggleLabelPins(forceValue) {
   refreshLampLabels();
 }
 
+// ====== 操控模式: 点击设备 → 旁边浮窗 (查看 / 修改 名称·继电器·接口) ======
+let inspectorLightIdx = null;
+const _inspectorProbe = new THREE.Vector3();
+
+function getDevicePopEl() {
+  return document.getElementById('device-pop');
+}
+
+function openDeviceInspector(lightIdx) {
+  if (typeof lightIdx !== 'number' || lightIdx < 0 || lightIdx >= config.lights.length) return;
+  inspectorLightIdx = lightIdx;
+  focusLamp(lightIdx);
+  renderDeviceInspector();
+  const pop = getDevicePopEl();
+  if (pop) pop.hidden = false;
+  updateDeviceInspectorPosition();
+}
+window.openDeviceInspector = openDeviceInspector;
+
+function closeDeviceInspector() {
+  if (inspectorLightIdx == null) return;
+  inspectorLightIdx = null;
+  const pop = getDevicePopEl();
+  if (pop) {
+    pop.hidden = true;
+    pop.innerHTML = '';
+  }
+}
+window.closeDeviceInspector = closeDeviceInspector;
+
+// 构造接口(通道)下拉的 options, 保留当前选中通道(超出新板路数则回到 0)
+function buildInspectorChannelOptions(device, currentChannel) {
+  const count = getDeviceChannelCount(device);
+  const keep = currentChannel < count ? currentChannel : 0;
+  const max = Math.max(count, currentChannel + 1);
+  let html = '';
+  for (let ch = 0; ch < max; ch++) {
+    html += '<option value="' + ch + '"' + (ch === keep ? ' selected' : '') +
+      '>接口 ' + String(ch + 1).padStart(2, '0') + '</option>';
+  }
+  return html;
+}
+
+function renderDeviceInspector() {
+  const pop = getDevicePopEl();
+  if (!pop || inspectorLightIdx == null) return;
+  const idx = inspectorLightIdx;
+  const light = config.lights[idx];
+  if (!light) { closeDeviceInspector(); return; }
+  const meta = getItemMeta(light.type);
+
+  let deviceOptions = '';
+  config.devices.forEach(function(device) {
+    deviceOptions += '<option value="' + escapeHtml(device.ip) + '"' +
+      (light.device_ip === device.ip ? ' selected' : '') + '>' +
+      escapeHtml(device.name || device.ip) + '</option>';
+  });
+
+  const selectedDevice = getDeviceByIp(light.device_ip) || config.devices[0] || null;
+  const channelOptions = buildInspectorChannelOptions(selectedDevice, parseInt(light.channel, 10) || 0);
+
+  const status = deviceStatus[light.device_ip];
+  const connected = !!(status && status.connected);
+  const on = connected && status.relay_states && status.relay_states[light.channel];
+
+  pop.innerHTML =
+    '<div class="device-pop-head">' +
+      '<div class="device-pop-icon" style="color:' + meta.accent + '">' + escapeHtml(meta.icon || '·') + '</div>' +
+      '<div class="device-pop-titles">' +
+        '<div class="device-pop-kicker">操控 · ' + escapeHtml(meta.label) + '</div>' +
+        '<div class="device-pop-title" data-pop="heading">' + escapeHtml(light.name || ('未命名' + meta.label)) + '</div>' +
+      '</div>' +
+      '<button type="button" class="device-pop-close" data-pop="close" title="关闭">×</button>' +
+    '</div>' +
+    '<div class="device-pop-state">' +
+      '<span class="device-pop-state-label">当前状态</span>' +
+      '<span class="device-pop-state-val" data-pop="state"></span>' +
+      '<button type="button" class="device-pop-toggle" data-pop="toggle"></button>' +
+    '</div>' +
+    '<div class="device-pop-field">' +
+      '<label>名称</label>' +
+      '<input type="text" data-pop="name" placeholder="设备名称" value="' + escapeHtml(light.name || '') + '">' +
+    '</div>' +
+    '<div class="device-pop-field">' +
+      '<label>所连继电器</label>' +
+      '<select data-pop="device">' + deviceOptions + '</select>' +
+    '</div>' +
+    '<div class="device-pop-field">' +
+      '<label>接口 (通道)</label>' +
+      '<select data-pop="channel">' + channelOptions + '</select>' +
+    '</div>' +
+    '<div class="device-pop-actions">' +
+      '<button type="button" class="btn btn-ghost" data-pop="cancel">取消</button>' +
+      '<button type="button" class="btn btn-primary" data-pop="save">保存修改</button>' +
+    '</div>';
+
+  pop.querySelector('[data-pop="close"]').onclick = closeDeviceInspector;
+  pop.querySelector('[data-pop="cancel"]').onclick = closeDeviceInspector;
+  pop.querySelector('[data-pop="save"]').onclick = saveDeviceInspector;
+  pop.querySelector('[data-pop="toggle"]').onclick = inspectorToggleLight;
+
+  const nameInput = pop.querySelector('[data-pop="name"]');
+  nameInput.oninput = function() {
+    const heading = pop.querySelector('[data-pop="heading"]');
+    if (heading) heading.textContent = nameInput.value || ('未命名' + meta.label);
+  };
+
+  const deviceSelect = pop.querySelector('[data-pop="device"]');
+  deviceSelect.onchange = function() {
+    const chSelect = pop.querySelector('[data-pop="channel"]');
+    const curCh = parseInt(chSelect.value, 10) || 0;
+    chSelect.innerHTML = buildInspectorChannelOptions(getDeviceByIp(deviceSelect.value), curCh);
+  };
+
+  refreshDeviceInspectorState();
+}
+
+// 仅刷新状态行 (开/关/离线), 不影响正在编辑的名称与下拉
+function refreshDeviceInspectorState() {
+  const pop = getDevicePopEl();
+  if (!pop || pop.hidden || inspectorLightIdx == null) return;
+  const light = config.lights[inspectorLightIdx];
+  if (!light) return;
+  const status = deviceStatus[light.device_ip];
+  const connected = !!(status && status.connected);
+  const on = connected && status.relay_states && status.relay_states[light.channel];
+  const valEl = pop.querySelector('[data-pop="state"]');
+  const toggleBtn = pop.querySelector('[data-pop="toggle"]');
+  if (valEl) {
+    valEl.textContent = connected ? (on ? '已开启' : '已关闭') : '设备离线';
+    valEl.classList.toggle('on', !!on);
+    valEl.classList.toggle('off', connected && !on);
+  }
+  if (toggleBtn) {
+    toggleBtn.textContent = on ? '关闭' : '开启';
+    toggleBtn.disabled = !connected;
+  }
+}
+
+async function inspectorToggleLight() {
+  if (inspectorLightIdx == null) return;
+  await toggleLight(inspectorLightIdx);
+  refreshDeviceInspectorState();
+}
+
+async function saveDeviceInspector() {
+  const pop = getDevicePopEl();
+  if (!pop || inspectorLightIdx == null) return;
+  const idx = inspectorLightIdx;
+  const light = config.lights[idx];
+  if (!light) { closeDeviceInspector(); return; }
+
+  const name = pop.querySelector('[data-pop="name"]').value.trim();
+  const deviceIp = pop.querySelector('[data-pop="device"]').value;
+  const channel = parseInt(pop.querySelector('[data-pop="channel"]').value, 10) || 0;
+
+  if (!getDeviceByIp(deviceIp)) {
+    showToast('warn', '请选择继电器', '该设备指向的继电器不存在，请重新选择。');
+    return;
+  }
+
+  const clash = config.lights.some(function(other, i) {
+    return i !== idx && other.device_ip === deviceIp && other.channel === channel;
+  });
+  if (clash) {
+    showToast('warn', '接口被占用', '该继电器的这个接口已绑定其它设备，请换一个接口。');
+    return;
+  }
+
+  light.name = name || getSuggestedLightName(light.type);
+  light.device_ip = deviceIp;
+  light.channel = channel;
+
+  try {
+    const result = await saveConfigData();
+    if (result.ok) {
+      renderLightRows();
+      rebuildLamps();
+      applyStatus();
+      renderDeviceInspector();
+      showToast('success', '已保存', '设备信息已更新。');
+    } else {
+      showToast('error', '保存失败', getFriendlyMessage(result.error || '未知错误', 'save'));
+    }
+  } catch (error) {
+    showToast('error', '保存失败', getFriendlyMessage(getErrorMessage(error, '未知错误'), 'save'));
+  }
+}
+
+// 浮窗跟随设备图标的屏幕位置; 操控模式关闭 / 进入漫游或布局时自动收起
+function updateDeviceInspectorPosition() {
+  if (inspectorLightIdx == null) return;
+  if (typeof editMode !== 'undefined' && !editMode) { closeDeviceInspector(); return; }
+  if ((typeof walkMode !== 'undefined' && walkMode) || (typeof layoutMode !== 'undefined' && layoutMode)) {
+    closeDeviceInspector();
+    return;
+  }
+  const pop = getDevicePopEl();
+  if (!pop || pop.hidden) return;
+  if (inspectorLightIdx >= lamps.length) { closeDeviceInspector(); return; }
+  const lamp = lamps[inspectorLightIdx];
+  const canvasEl = renderer && renderer.domElement;
+  if (!lamp || !canvasEl) return;
+
+  const anchor = lamp.iconSprite || lamp.hit || lamp.group;
+  anchor.getWorldPosition(_inspectorProbe);
+  _inspectorProbe.project(camera);
+  const behind = _inspectorProbe.z > 1;
+
+  const rect = canvasEl.getBoundingClientRect();
+  const sx = (_inspectorProbe.x * 0.5 + 0.5) * rect.width;
+  const sy = (-_inspectorProbe.y * 0.5 + 0.5) * rect.height;
+  const popW = pop.offsetWidth || 250;
+  const popH = pop.offsetHeight || 230;
+  const margin = 14;
+  const gap = 30;
+
+  let left = sx + gap;
+  if (left + popW > rect.width - margin) left = sx - gap - popW; // 右侧放不下 → 放到左侧
+  left = clamp(left, margin, Math.max(margin, rect.width - popW - margin));
+  let top = sy - popH / 2;
+  top = clamp(top, margin, Math.max(margin, rect.height - popH - margin));
+
+  pop.style.left = left + 'px';
+  pop.style.top = top + 'px';
+  pop.style.opacity = behind ? '0' : '1';
+  pop.style.pointerEvents = behind ? 'none' : 'auto';
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape' && inspectorLightIdx != null) closeDeviceInspector();
+});
+
 function getItemMountedY(item, built, scale) {
   const mount = typeof item.mount === 'string' ? item.mount : (getItemMeta(item.type).mount || 'free');
   switch (mount) {
@@ -2349,15 +3062,24 @@ function createLamp(lightIdx, x, z, item) {
 
   const iconY = Math.max(built.hit.y * scale, 1.2);
   const isLampIcon = item.type === 'lamp';
-  const iconBase = isLampIcon ? 21 : 2.8;
-  const iconMin = isLampIcon ? 18 : 2.4;
-  const iconMax = isLampIcon ? 35 : 4.6;
-  const iconSize = clamp(iconBase * Math.sqrt(scale), iconMin, iconMax);
-  const iconSprite = createCanvasSprite(256, 256, iconSize, iconSize, iconY);
+  const iconBaseW = isLampIcon ? 71 : 2.8;
+  const iconBaseH = isLampIcon ? 17.8 : 2.8;
+  const iconMinW = isLampIcon ? 60 : 2.4;
+  const iconMinH = isLampIcon ? 15 : 2.4;
+  const iconMaxW = isLampIcon ? 118 : 4.6;
+  const iconMaxH = isLampIcon ? 29.5 : 4.6;
+  const scaleFactor = Math.sqrt(scale);
+  const iconW = clamp(iconBaseW * scaleFactor, iconMinW, iconMaxW);
+  const iconH = clamp(iconBaseH * scaleFactor, iconMinH, iconMaxH);
+  const iconSprite = isLampIcon
+    ? createCanvasPlane(512, 128, iconW, iconH, iconY)
+    : createCanvasSprite(256, 256, iconW, iconH, iconY);
   iconSprite.sprite.userData.lightIdx = lightIdx;
   iconSprite.sprite.renderOrder = 50;
   iconSprite.sprite.material.depthTest = false;
   iconSprite.sprite.material.depthWrite = false;
+  iconSprite.sprite.material.rotation = 0;
+  iconSprite.sprite.material.opacity = isLampIcon ? 0.82 : 1;
   group.add(iconSprite.sprite);
 
   scene.add(group);
@@ -2371,8 +3093,14 @@ function createLamp(lightIdx, x, z, item) {
     iconCanvas: iconSprite.canvas,
     iconTex: iconSprite.tex,
     iconSprite: iconSprite.sprite,
-    iconBaseScale: iconSize,
-    iconCurrentScale: iconSize,
+    iconPortrait: false,
+    iconUsesPowerGlyph: isLampIcon,
+    iconBaseScale: Math.max(iconW, iconH),
+    iconBaseScaleX: iconW,
+    iconBaseScaleY: iconH,
+    iconCurrentScale: Math.max(iconW, iconH),
+    iconCurrentScaleX: iconW,
+    iconCurrentScaleY: iconH,
     state: false,
     name: item.name || '',
     meta: meta,
@@ -2453,6 +3181,9 @@ function rebuildLamps() {
 
   const lights = config.lights || [];
   const positions = computeLayout(lights);
+  if (typeof setLampLightBudget === 'function') {
+    setLampLightBudget(lights.filter(function(l) { return l.type === 'lamp'; }).length);
+  }
   lights.forEach(function(light, index) {
     const point = positions[index] || { x: 0, z: 0 };
     lamps.push(createLamp(index, point.x, point.z, light));
@@ -2473,4 +3204,189 @@ function setLampState(index, state) {
   drawLabel(lamp, state);
   drawDeviceButton(lamp, state);
   lamp.label.visible = isLampLabelVisible(index);
+}
+
+// 渲染循环必须在所有 let/const（config、inspectorLightIdx 等）初始化之后再启动，
+// 否则 animate() 会在变量声明前访问它们，触发 TDZ 报错并中断本脚本。
+animate();
+
+// ========== 灯具用量报表 ==========
+let usageData = null;
+let usageTimer = null;
+let usageWarned = false;  // 同一次打开弹窗只提示一次失败, 避免 15 秒轮询反复弹 toast
+
+// 把秒数格式化成人类可读的时长文案
+function formatUsageDuration(seconds) {
+  const s = Math.max(0, Math.round(Number(seconds) || 0));
+  if (s < 60) return s + ' 秒';
+  if (s < 3600) {
+    const m = Math.floor(s / 60);
+    const rest = s % 60;
+    return rest > 0 ? m + ' 分 ' + rest + ' 秒' : m + ' 分';
+  }
+  if (s < 86400) {
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    return h + ' 小时 ' + m + ' 分';
+  }
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  return d + ' 天 ' + h + ' 小时';
+}
+
+async function refreshUsageReport() {
+  try {
+    const res = await fetch('/api/usage');
+    let json = null;
+    if (res.ok) {
+      json = await res.json();
+    }
+    if (!json || json.ok !== true) {
+      if (!usageWarned) {
+        usageWarned = true;
+        showToast('warn', '用量统计不可用', '需要重启后端服务后才能统计用量。');
+      }
+      return;
+    }
+    usageWarned = false;
+    usageData = json;
+    renderUsageReport();
+  } catch (err) {
+    if (!usageWarned) {
+      usageWarned = true;
+      showToast('error', '加载失败', '无法获取用量数据, 请检查后端服务。');
+    }
+  }
+}
+
+function renderUsageReport() {
+  const modal = document.getElementById('usage-modal');
+  const summaryEl = document.getElementById('usage-summary');
+  const listEl = document.getElementById('usage-list');
+  if (!modal || !modal.classList.contains('show') || !summaryEl || !listEl) return;
+
+  const rows = (config.lights || []).map(function(light, i) {
+    const key = light.device_ip + '#' + light.channel;
+    const stat = (usageData && usageData.usage && usageData.usage[key]) ||
+      { total_seconds: 0, today_seconds: 0, switch_count: 0, on: false };
+    return { num: i + 1, light: light, stat: stat };
+  });
+
+  const sortEl = document.getElementById('usage-sort');
+  const sortKey = sortEl ? sortEl.value : 'num';
+  if (sortKey === 'today') {
+    rows.sort(function(a, b) { return (b.stat.today_seconds || 0) - (a.stat.today_seconds || 0); });
+  } else if (sortKey === 'total') {
+    rows.sort(function(a, b) { return (b.stat.total_seconds || 0) - (a.stat.total_seconds || 0); });
+  } else if (sortKey === 'count') {
+    rows.sort(function(a, b) { return (b.stat.switch_count || 0) - (a.stat.switch_count || 0); });
+  } else {
+    rows.sort(function(a, b) { return a.num - b.num; });
+  }
+
+  let onCount = 0;
+  let todayMax = 0;
+  let totalMax = 0;
+  let maxTotal = 0;
+  rows.forEach(function(row) {
+    if (row.stat.on) onCount++;
+    todayMax = Math.max(todayMax, row.stat.today_seconds || 0);
+    totalMax = Math.max(totalMax, row.stat.total_seconds || 0);
+    if ((row.stat.total_seconds || 0) > maxTotal) maxTotal = row.stat.total_seconds;
+  });
+
+  summaryEl.innerHTML = [
+    '<div class="usage-chip">灯具总数<b>' + rows.length + '</b></div>',
+    '<div class="usage-chip">当前点亮<b>' + onCount + '</b></div>',
+    '<div class="usage-chip">今日单灯最长<b>' + formatUsageDuration(todayMax) + '</b></div>',
+    '<div class="usage-chip">累计单灯最长<b>' + formatUsageDuration(totalMax) + '</b></div>'
+  ].join('');
+
+  if (rows.length === 0) {
+    listEl.innerHTML = '<div class="usage-empty">还没有电器, 请先在"设备管理"里添加。</div>';
+    return;
+  }
+
+  const denom = Math.max(maxTotal, 1);
+  const html = rows.map(function(row) {
+    const light = row.light;
+    const stat = row.stat;
+    const pct = ((stat.total_seconds || 0) / denom * 100).toFixed(1);
+    const groupHtml = light.group
+      ? '<span class="usage-group">' + escapeHtml(light.group) + '</span>'
+      : '';
+    return '<div class="usage-row">' +
+      '<span class="usage-dot' + (stat.on ? ' on' : '') + '"></span>' +
+      '<div class="usage-main">' +
+        '<div class="usage-name">#' + row.num + ' ' + escapeHtml(light.name || '') + groupHtml + '</div>' +
+        '<div class="usage-meta">' + escapeHtml(getDeviceDisplayName(light.device_ip)) +
+          ' · 通道' + String((parseInt(light.channel, 10) || 0) + 1).padStart(2, '0') + '</div>' +
+        '<div class="usage-bar-track"><div class="usage-bar-fill" style="width: ' + pct + '%"></div></div>' +
+      '</div>' +
+      '<div class="usage-nums">' +
+        '<div class="usage-num"><label>今日</label><b>' + formatUsageDuration(stat.today_seconds) + '</b></div>' +
+        '<div class="usage-num"><label>累计</label><b>' + formatUsageDuration(stat.total_seconds) + '</b></div>' +
+        '<div class="usage-num"><label>次数</label><b>' + (stat.switch_count || 0) + '</b></div>' +
+      '</div>' +
+    '</div>';
+  });
+  listEl.innerHTML = html.join('');
+}
+
+function showUsageModal() {
+  const modal = document.getElementById('usage-modal');
+  if (!modal) return;
+  usageWarned = false;
+  modal.classList.add('show');
+  refreshUsageReport();
+  if (usageTimer) clearInterval(usageTimer);
+  usageTimer = setInterval(refreshUsageReport, 15000);
+}
+
+function hideUsageModal() {
+  const modal = document.getElementById('usage-modal');
+  if (modal) modal.classList.remove('show');
+  if (usageTimer) clearInterval(usageTimer);
+  usageTimer = null;
+}
+
+// CSV 字段转义: 含逗号/引号/换行时加双引号
+function csvUsageField(value) {
+  const str = String(value === undefined || value === null ? '' : value);
+  if (/[",\r\n]/.test(str)) return '"' + str.replace(/"/g, '""') + '"';
+  return str;
+}
+
+function exportUsageCsv() {
+  const lights = config.lights || [];
+  if (!usageData || lights.length === 0) {
+    showToast('warn', '暂无数据', '还没有可导出的用量数据, 请先打开报表并等待加载完成。');
+    return;
+  }
+  const lines = ['编号,名称,分组,设备,通道,当前状态,今日点亮(分钟),累计点亮(分钟),开关次数'];
+  lights.forEach(function(light, i) {
+    const key = light.device_ip + '#' + light.channel;
+    const stat = (usageData.usage && usageData.usage[key]) ||
+      { total_seconds: 0, today_seconds: 0, switch_count: 0, on: false };
+    lines.push([
+      i + 1,
+      csvUsageField(light.name || ''),
+      csvUsageField(light.group || ''),
+      csvUsageField(getDeviceDisplayName(light.device_ip)),
+      (parseInt(light.channel, 10) || 0) + 1,
+      stat.on ? '点亮' : '熄灭',
+      ((stat.today_seconds || 0) / 60).toFixed(1),
+      ((stat.total_seconds || 0) / 60).toFixed(1),
+      stat.switch_count || 0
+    ].join(','));
+  });
+  const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = '灯具用量报表.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }

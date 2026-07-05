@@ -2,13 +2,20 @@ import threading
 
 from backend.device_clients import create_device_client
 from backend.device_config import DEFAULT_CHANNEL_COUNT, normalize_device_config
+from backend.settings import USAGE_FILE
+from backend.usage_stats import UsageStats
+
+
+STATUS_FAILURES_BEFORE_OFFLINE = 3
 
 
 class DeviceRuntime:
     def __init__(self):
         self._clients = {}
         self._device_states = {}
+        self._status_failures = {}
         self._lock = threading.Lock()
+        self.usage = UsageStats(USAGE_FILE)
 
     def connect_device(self, device):
         device = normalize_device_config(device)
@@ -26,6 +33,8 @@ class DeviceRuntime:
             if not client.connect(device):
                 raise ConnectionError("Connection failed")
             relay_states = client.read_relays(device)
+            self._clear_status_failure(device_key)
+            self.usage.observe(device_key, relay_states)
         except Exception as error:
             self._close_client(device_key)
             self._set_state(
@@ -45,6 +54,7 @@ class DeviceRuntime:
     def disconnect_device(self, ip):
         device_key = self._device_key(ip)
         self._close_client(device_key)
+        self._clear_status_failure(device_key)
         with self._lock:
             state = self._device_states.get(device_key)
             if state:
@@ -68,16 +78,20 @@ class DeviceRuntime:
             relay_states = self._normalize_relays(device, state.get("relay_states"))
             if state.get("connected"):
                 try:
-                    client = self._get_or_create_client(device)
-                    relay_states = client.read_relays(device)
+                    relay_states = self._read_relays_with_reconnect(device, device_key)
+                    self._clear_status_failure(device_key)
+                    self.usage.observe(device_key, relay_states)
                     next_state = self._build_state(device, connected=True, relay_states=relay_states)
                     self._set_state(device_key, next_state)
                     result[device_key] = self._build_public_state(next_state)
                 except Exception as error:
-                    self._close_client(device_key)
+                    failure_count = self._record_status_failure(device_key)
+                    connected = failure_count < STATUS_FAILURES_BEFORE_OFFLINE
+                    if not connected:
+                        self._close_client(device_key)
                     next_state = self._build_state(
                         device,
-                        connected=False,
+                        connected=connected,
                         relay_states=relay_states,
                         error=str(error),
                     )
@@ -99,9 +113,16 @@ class DeviceRuntime:
         client, state = self._require_connected(ip)
         device = state["device"]
         self._validate_channel_range(device, channel, channel + 1)
-        client.write_relay(device, channel, value)
+        self._write_with_reconnect(
+            ip,
+            client,
+            device,
+            lambda active_client: active_client.write_relay(device, channel, value),
+        )
         with self._lock:
             state["relay_states"][channel] = value
+            states_copy = list(state["relay_states"])
+        self.usage.observe(self._device_key(ip), states_copy)
         return {"ok": True}
 
     def batch_toggle(self, ip, start, end, value):
@@ -109,11 +130,21 @@ class DeviceRuntime:
         device = state["device"]
         self._validate_channel_range(device, start, end)
         values = [value] * (end - start)
-        client.write_relays(device, start, values)
+        self._write_with_reconnect(
+            ip,
+            client,
+            device,
+            lambda active_client: active_client.write_relays(device, start, values),
+        )
         with self._lock:
             for index in range(start, end):
                 state["relay_states"][index] = value
+            states_copy = list(state["relay_states"])
+        self.usage.observe(self._device_key(ip), states_copy)
         return {"ok": True}
+
+    def usage_snapshot(self):
+        return self.usage.snapshot()
 
     def prune_devices(self, valid_ips):
         with self._lock:
@@ -125,6 +156,7 @@ class DeviceRuntime:
 
         for ip in stale_ips:
             self._close_client(ip)
+            self._clear_status_failure(ip)
             with self._lock:
                 self._device_states.pop(ip, None)
 
@@ -137,14 +169,57 @@ class DeviceRuntime:
                 self._clients[device_key] = client
             return client
 
+    def _read_relays_with_reconnect(self, device, device_key):
+        with self._lock:
+            client = self._clients.get(device_key)
+        if client is None:
+            client = self._get_or_create_client(device)
+            if not client.connect(device):
+                raise ConnectionError("Connection failed")
+
+        try:
+            return client.read_relays(device)
+        except Exception as first_error:
+            self._close_client(device_key)
+            client = self._get_or_create_client(device)
+            try:
+                if not client.connect(device):
+                    raise ConnectionError("Connection failed")
+                return client.read_relays(device)
+            except Exception:
+                self._close_client(device_key)
+                raise first_error
+
+    def _write_with_reconnect(self, ip, client, device, write_action):
+        try:
+            write_action(client)
+            self._clear_status_failure(self._device_key(ip))
+            return
+        except Exception as first_error:
+            device_key = self._device_key(ip)
+            self._close_client(device_key)
+            client = self._get_or_create_client(device)
+            try:
+                if not client.connect(device):
+                    raise ConnectionError("Connection failed")
+                write_action(client)
+                self._clear_status_failure(device_key)
+            except Exception:
+                self._close_client(device_key)
+                raise first_error
+
     def _require_connected(self, ip):
         device_key = self._device_key(ip)
         with self._lock:
             state = self._device_states.get(device_key)
             client = self._clients.get(device_key)
             connected = bool(state and state.get("connected"))
-        if not client or not connected:
+        if not connected:
             raise RuntimeError("Device is not connected")
+        if not client:
+            client = self._get_or_create_client(state["device"])
+            if not client.connect(state["device"]):
+                raise RuntimeError("Device is not connected")
         return client, state
 
     def _build_state(self, device, connected, relay_states=None, error=None):
@@ -202,6 +277,16 @@ class DeviceRuntime:
     def _set_state(self, device_key, state):
         with self._lock:
             self._device_states[device_key] = state
+
+    def _record_status_failure(self, device_key):
+        with self._lock:
+            count = self._status_failures.get(device_key, 0) + 1
+            self._status_failures[device_key] = count
+            return count
+
+    def _clear_status_failure(self, device_key):
+        with self._lock:
+            self._status_failures.pop(device_key, None)
 
     def _device_key(self, ip):
         return str(ip or "").strip()

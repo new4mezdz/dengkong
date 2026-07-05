@@ -3,10 +3,54 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DAM1600D 3D控制中心</title>
+  <title>JV-DAM3200 3D控制中心</title>
 <link rel="stylesheet" href="./assets/css/app.css">
 </head>
 <body>
+
+<div id="top-tabs">
+  <button class="top-tab" data-view="modeling" onclick="switchTopView('modeling')">配置</button>
+  <button class="top-tab active" data-view="control" onclick="switchTopView('control')">操控</button>
+  <button class="top-tab" data-view="stats" onclick="switchTopView('stats')">统计</button>
+</div>
+
+<div id="view-stats">
+  <div class="stats-shell">
+    <div class="stats-top">
+      <div class="stats-title">使用统计</div>
+      <div class="stats-ctrls">
+        <div class="seg" id="stats-range-seg">
+          <button class="seg-btn" data-range="1" onclick="setStatsRange(1)">今日</button>
+          <button class="seg-btn active" data-range="7" onclick="setStatsRange(7)">近7天</button>
+          <button class="seg-btn" data-range="30" onclick="setStatsRange(30)">近30天</button>
+        </div>
+        <div class="seg" id="stats-dim-seg">
+          <button class="seg-btn active" data-dim="light" onclick="setStatsDim('light')">按灯</button>
+          <button class="seg-btn" data-dim="group" onclick="setStatsDim('group')">按分组</button>
+          <button class="seg-btn" data-dim="device" onclick="setStatsDim('device')">按继电器</button>
+        </div>
+        <button class="btn btn-ghost" onclick="refreshStatsData()">刷新</button>
+        <button class="btn btn-ghost" onclick="exportStatsCsv()">导出 CSV</button>
+      </div>
+    </div>
+    <div class="stats-msg" id="stats-msg" hidden></div>
+    <div class="stats-cards" id="stats-cards"></div>
+    <div class="stats-section">
+      <div class="stats-sec-title" id="stats-trend-title">每日单灯最长点亮时长趋势</div>
+      <canvas id="stats-trend" class="stats-canvas"></canvas>
+    </div>
+    <div class="stats-grid2">
+      <div class="stats-section">
+        <div class="stats-sec-title">使用时长排行 (Top 10)</div>
+        <div id="stats-rank"></div>
+      </div>
+      <div class="stats-section">
+        <div class="stats-sec-title">明细</div>
+        <div id="stats-table" class="stats-table"></div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <div id="app">
   <div id="scene-wrap">
@@ -17,12 +61,13 @@
         <div class="hud-clock" id="hud-clock">--:--</div>
         <div>
           <div class="hud-title">FACTORY LIVE VIEW · 3D</div>
-          <div class="hud-subtitle">厂房实时监控</div>
+          <div class="hud-subtitle">场景实时监控</div>
         </div>
       </div>
       <div class="hud-top-right">
         <div class="hud-temp">
           <div class="hud-temp-main" id="hud-temp-main">— °C</div>
+          <div class="hud-temp-cond" id="hud-weather-text">西昌 · --</div>
           <div class="hud-temp-sub">
             <span class="high" id="hud-temp-high">— °C</span>
             <span style="margin: 0 6px; opacity: 0.5;">·</span>
@@ -52,15 +97,27 @@
   <span id="edit-label">操控模式:关</span>
 </div>
     <div class="walk-reticle" id="walk-reticle" aria-hidden="true"></div>
-    <div class="walk-interact" id="walk-interact" hidden>
-      <div class="walk-interact-copy">
-        <div class="walk-interact-kicker" id="walk-interact-kicker">FIRST PERSON</div>
-        <div class="walk-interact-title" id="walk-interact-title">对准设备可交互</div>
-        <div class="walk-interact-meta" id="walk-interact-meta">按 E 或 Enter 切换当前设备</div>
+    <div class="device-pop" id="device-pop" hidden></div>
+    </div>
+
+  <div id="control-panel">
+    <div class="cp-head">
+      <div class="cp-title">操控</div>
+      <div class="cv-modes">
+        <button class="cv-mode active" data-mode="channel" onclick="setControlMode('channel')">按通道</button>
+        <button class="cv-mode" data-mode="appliance" onclick="setControlMode('appliance')">按电器</button>
       </div>
-      <button type="button" class="walk-interact-btn" id="walk-interact-btn" onclick="triggerWalkInteraction()">E 切换</button>
     </div>
-    </div>
+    <div class="cp-actions cp-primary-actions" id="cv-main-actions"></div>
+    <details class="cv-advanced-actions">
+      <summary>分组 / 场景快捷</summary>
+      <div class="cv-quick">
+        <div class="cv-quick-col"><div class="cv-quick-title">分组</div><div class="cv-quick-list" id="cv-groups"></div></div>
+        <div class="cv-quick-col"><div class="cv-quick-title">场景</div><div class="cv-quick-list" id="cv-scenes"></div></div>
+      </div>
+    </details>
+    <div class="cv-body" id="cv-body"></div>
+  </div>
 
   <div id="panel">
     <button type="button" id="panel-toggle" onclick="toggleMainPanel()" aria-expanded="true" aria-controls="panel-main" title="收起控制面板">
@@ -89,7 +146,7 @@
     <div class="card head-card">
       <div class="head-top">
         <div class="head-copy">
-          <div class="head-title">DAM1600D</div>
+          <div class="head-title">JV-DAM3200</div>
           <div class="head-sub">多设备灯光控制</div>
         </div>
         <button type="button" class="panel-visibility-btn" id="panel-visibility-btn" onclick="toggleMainPanel()">收起侧栏</button>
@@ -151,6 +208,7 @@
             <span>标签常显</span>
             <button class="mini-toggle" id="label-toggle-btn" onclick="toggleLabelPins()" title="切换标签常显"></button>
           </div>
+          <button class="btn btn-ghost" style="padding: 5px 10px; font-size: 11px;" onclick="showUsageModal()">用量报表</button>
           <button class="btn btn-ghost" style="padding: 5px 10px; font-size: 11px;" onclick="showLightsModal()">设备管理</button>
         </div>
       </div>
@@ -230,9 +288,9 @@
     <div class="modal-notice" id="dev-modal-notice" hidden></div>
     <div class="form">
       <div class="form-item"><label>设备名称</label><input id="in-name" value="新设备"></div>
-      <div class="form-item"><label>设备 IP 地址(用作唯一标识)</label><input id="in-ip" value="192.168.1.100"></div>
+      <div class="form-item"><label id="in-endpoint-label">设备 IP 地址(用作唯一标识)</label><input id="in-ip" value="192.168.1.100"></div>
       <div class="form-item"><label>端口</label><input id="in-port" value="502"></div>
-      <div class="form-item"><label>通道数量</label><input id="in-channel-count" type="number" min="1" max="128" value="16"></div>
+      <div class="form-item"><label>通道数量</label><input id="in-channel-count" type="number" min="1" max="128" value="32"></div>
       <div class="form-item"><label>站号</label><input id="in-unit" value="254"></div>
       <div class="form-item">
         <label>协议</label>
@@ -258,9 +316,31 @@
 <div class="modal-bg" id="lights-modal">
   <div class="modal wide">
     <h3>电器管理</h3>
-    <div class="sub">每个电器绑定到一个设备通道(0–15)，可选择图标类型、自定义名称，并单独设置模型大小</div>
+    <div class="sub">每个电器绑定到一个设备通道，JV-DAM3200 支持 32 路，可选择图标类型、自定义名称，并单独设置模型大小</div>
     <div class="modal-notice" id="lights-modal-notice" hidden></div>
     <datalist id="light-group-options"></datalist>
+    <div class="lc-batch">
+      <div class="lc-batch-title">批量排布灯具 · 自动对齐 · 均匀间隔</div>
+      <div class="lc-batch-fields">
+        <label class="lc-batch-field">灯具总数<input id="lc-batch-count" type="number" min="1" max="1000" value="8"></label>
+        <label class="lc-batch-field">每排数量<input id="lc-batch-percol" type="number" min="1" max="200" placeholder="自动"></label>
+        <label class="lc-batch-field">类型<select id="lc-batch-type"></select></label>
+        <label class="lc-batch-field lc-batch-group">分组<input id="lc-batch-group" type="text" list="light-group-options" placeholder="可选"></label>
+        <button type="button" class="lc-place lc-batch-go" onclick="addLightRow()">批量生成</button>
+      </div>
+      <div class="lc-batch-hint">填总数即可, 系统按厂房比例自动排成对齐方格、均匀间隔(几百个也不会乱)。每排数量留空=自动; 想要整齐一排就把它填成总数。</div>
+    </div>
+    <div class="lc-batch lc-bind">
+      <div class="lc-batch-title">按编号顺序绑定继电器</div>
+      <div class="lc-batch-fields">
+        <label class="lc-batch-field">起始编号<input id="lc-bind-from" type="number" min="1" value="1"></label>
+        <label class="lc-batch-field">结束编号<input id="lc-bind-to" type="number" min="1"></label>
+        <label class="lc-batch-field lc-batch-group">目标继电器<select id="lc-bind-device"></select></label>
+        <label class="lc-batch-field">起始通道<input id="lc-bind-start" type="number" min="1" value="1"></label>
+        <button type="button" class="lc-place lc-batch-go" onclick="bindLightRange()">顺序绑定</button>
+      </div>
+      <div class="lc-batch-hint">把"起始–结束编号"的电器按顺序绑定到所选继电器, 从"起始通道"开始依次 +1; 超出该板通道数的部分会提示, 改绑到下一块板即可。编号见下方每行左侧的 # 号。</div>
+    </div>
     <div class="lc-list" id="lc-list"></div>
     <button class="lc-add" onclick="addLight()">+ 添加一个电器</button>
     <div class="modal-actions">
@@ -284,6 +364,26 @@
   </div>
 </div>
 
+<div class="modal-bg" id="usage-modal">
+  <div class="modal wide">
+    <h3>灯具用量报表</h3>
+    <div class="sub">统计每盏灯的今日/累计点亮时长与开关次数, 数据由后端按继电器状态自动记录。</div>
+    <div class="usage-summary" id="usage-summary"></div>
+    <div class="usage-toolbar">
+      <select id="usage-sort" onchange="renderUsageReport()">
+        <option value="num">按编号</option>
+        <option value="today">按今日时长</option>
+        <option value="total">按累计时长</option>
+        <option value="count">按开关次数</option>
+      </select>
+      <button class="btn btn-ghost" onclick="refreshUsageReport()">刷新</button>
+      <button class="btn btn-ghost" onclick="exportUsageCsv()">导出 CSV</button>
+      <button class="btn btn-primary" style="margin-left:auto;" onclick="hideUsageModal()">关闭</button>
+    </div>
+    <div class="usage-list" id="usage-list"></div>
+  </div>
+</div>
+
 <div class="modal-bg" id="setup-modal">
   <div class="modal wide setup-modal-shell">
     <h3>接入向导</h3>
@@ -294,9 +394,9 @@
         <div class="modal-notice" id="setup-device-notice" hidden></div>
         <div class="form">
           <div class="form-item"><label>设备名称</label><input id="setup-device-name" value="主控器"></div>
-          <div class="form-item"><label>设备 IP 地址</label><input id="setup-device-ip" value="192.168.1.100"></div>
+          <div class="form-item"><label id="setup-device-endpoint-label">设备 IP 地址</label><input id="setup-device-ip" value="192.168.1.100"></div>
           <div class="form-item"><label>端口</label><input id="setup-device-port" value="502"></div>
-          <div class="form-item"><label>通道数量</label><input id="setup-device-channel-count" type="number" min="1" max="128" value="16"></div>
+          <div class="form-item"><label>通道数量</label><input id="setup-device-channel-count" type="number" min="1" max="128" value="32"></div>
           <div class="form-item"><label>站号</label><input id="setup-device-unit" value="254"></div>
           <div class="form-item">
             <label>协议</label>
@@ -370,10 +470,18 @@
 
 <script src="./libs/three.min.js"></script>
 <script src="./libs/OrbitControls.js"></script>
+<script src="./libs/postprocessing/shaders/CopyShader.js"></script>
+<script src="./libs/postprocessing/shaders/LuminosityHighPassShader.js"></script>
+<script src="./libs/postprocessing/EffectComposer.js"></script>
+<script src="./libs/postprocessing/RenderPass.js"></script>
+<script src="./libs/postprocessing/ShaderPass.js"></script>
+<script src="./libs/postprocessing/UnrealBloomPass.js"></script>
 <script src="./assets/js/app-01-core.js"></script>
 <script src="./assets/js/app-02-models.js"></script>
 <script src="./assets/js/app-runtime-main.js"></script>
 <script src="./assets/js/app-ui-main.js"></script>
 <script src="./assets/js/app-05-layout-extensions.js"></script>
+<script src="./assets/js/app-06-soft-style.js"></script>
+<script src="./assets/js/app-07-tech-style.js"></script>
 </body>
 </html>

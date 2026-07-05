@@ -164,6 +164,26 @@ function drawLabel(lamp, on) {
   lamp.labelTex.needsUpdate = true;
 }
 
+// 同屏真实点光源预算: 灯具数量很多时(整屏网格可达数百盏)若每盏都发实光,
+// 会超出 WebGL 片元着色器的光源上限, 造成渲染异常或严重掉帧。这里把"发实光"的灯
+// 均匀抽样限制在上限内, 其余灯仍通过自发光面板 + 地面光斑表现"点亮"。
+const LAMP_LIGHT_MAX = 48;
+let _lampLightStride = 1;
+let _lampLightSerial = 0;
+let _lampLightEmitted = 0;
+function setLampLightBudget(totalLamps) {
+  const total = Math.max(0, Number(totalLamps) || 0);
+  _lampLightStride = Math.max(1, Math.ceil(total / LAMP_LIGHT_MAX));
+  _lampLightSerial = 0;
+  _lampLightEmitted = 0;
+}
+function _lampLightShouldEmit() {
+  const emit = (_lampLightSerial % _lampLightStride === 0) && (_lampLightEmitted < LAMP_LIGHT_MAX);
+  _lampLightSerial += 1;
+  if (emit) _lampLightEmitted += 1;
+  return emit;
+}
+
 function buildLampModel(group, meta) {
   const panelW = 5, panelH = 0.15, panelD = 0.8;
   const frameMat = new THREE.MeshStandardMaterial({
@@ -178,10 +198,13 @@ function buildLampModel(group, meta) {
   const frame = addMesh(group, new THREE.BoxGeometry(panelW, panelH, panelD), frameMat, [0, 9.85, 0]);
   const diff = addMesh(group, new THREE.PlaneGeometry(panelW - 0.15, panelD - 0.15), diffMat, [0, 9.85 - panelH / 2 - 0.002, 0], [Math.PI / 2, 0, 0], false);
   diff.castShadow = false;
-  // 暖光更亮、覆盖更广, 与暗色场景配合形成 Tibber 风格的房间氛围
-  const point = new THREE.PointLight(0xffe2a8, 0, 95, 1.5);
-  point.position.y = 9.5;
-  group.add(point);
+  // 暖光点光源(灯具自身的真实光照)。受同屏光源预算控制: 数量很多时只有抽样到的灯发实光。
+  let point = null;
+  if (_lampLightShouldEmit()) {
+    point = new THREE.PointLight(0xffe2a8, 0, 95, 1.5);
+    point.position.y = 9.5;
+    group.add(point);
+  }
 
   const spot = new THREE.Mesh(
     new THREE.PlaneGeometry(panelW * 2.6, panelD * 8),
@@ -211,7 +234,7 @@ function buildLampModel(group, meta) {
         diff.material.emissiveIntensity = 3.4;
         frame.material.emissive.set(0xffd58a);
         frame.material.emissiveIntensity = 0.28;
-        point.intensity = 7.2;
+        if (point) point.intensity = 7.2;
         spot.material.opacity = 0.6;
       } else {
         diff.material.color.set(0x3a3a3c);
@@ -219,7 +242,7 @@ function buildLampModel(group, meta) {
         diff.material.emissiveIntensity = 0;
         frame.material.emissive.set(0x000000);
         frame.material.emissiveIntensity = 0;
-        point.intensity = 0;
+        if (point) point.intensity = 0;
         spot.material.opacity = 0;
       }
     }
@@ -758,6 +781,7 @@ function toggleEditMode(forceValue) {
   } else {
     el.classList.remove('active');
     lbl.textContent = '操控模式:关';
+    if (typeof closeDeviceInspector === 'function') closeDeviceInspector();
   }
   updateSceneHint();
   updateCanvasCursor();
@@ -881,6 +905,8 @@ canvas.addEventListener('pointerdown', function(e) {
     controls.enabled = false; // 按在图标上就先禁用旋转
     return;
   }
+  // 操控模式下点击空白处(或其它对象) → 收起设备浮窗
+  if (editMode && typeof closeDeviceInspector === 'function') closeDeviceInspector();
   // 操控模式下:允许拖动工位、货架、消防设施等布局对象
   if (editMode && Array.isArray(layoutHitObjects) && layoutHitObjects.length > 0) {
     const layoutInter = raycaster.intersectObjects(layoutHitObjects);
@@ -963,8 +989,13 @@ canvas.addEventListener('pointerup', function(e) {
         rebuildLayoutScene();
       }
     }
-  } else if (!editMode && s.kind === 'lamp') {
-    // 仅在非操控模式下,点击切换开关 (只对灯有效)
-    toggleLight(s.lightIdx);
+  } else if (s.kind === 'lamp') {
+    if (editMode) {
+      // 操控模式: 点击设备 → 在旁边弹出查看 / 修改浮窗
+      if (typeof openDeviceInspector === 'function') openDeviceInspector(s.lightIdx);
+    } else {
+      // 非操控模式: 点击切换开关
+      toggleLight(s.lightIdx);
+    }
   }
 });

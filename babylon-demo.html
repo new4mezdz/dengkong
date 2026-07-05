@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Babylon.js 3D Demo - JV-DAM3200</title>
+  <link rel="stylesheet" href="./assets/css/babylon-demo.css">
+</head>
+<body>
+  <div class="demo-shell">
+    <main class="scene-panel">
+      <canvas id="babylon-scene"></canvas>
+
+      <header class="demo-hud demo-hud-top">
+        <div>
+          <div class="eyebrow">BABYLON.JS PROTOTYPE</div>
+          <h1>Factory Live View</h1>
+          <p id="selected-device">选择一个灯具或设备查看状态</p>
+        </div>
+        <div class="metric-row">
+          <div class="metric">
+            <span id="metric-on">0</span>
+            <label>在线开启</label>
+          </div>
+          <div class="metric">
+            <span id="metric-off">0</span>
+            <label>关闭</label>
+          </div>
+          <div class="metric">
+            <span id="metric-fps">--</span>
+            <label>FPS</label>
+          </div>
+        </div>
+      </header>
+
+      <div class="demo-hud demo-toolbar">
+        <button type="button" class="tool-btn is-active" id="style-tech">科技夜景</button>
+        <button type="button" class="tool-btn" id="style-soft">柔和交付</button>
+        <button type="button" class="tool-btn" id="camera-mode">切换漫游</button>
+      </div>
+
+      <div class="demo-hint">
+        左键拖动旋转，滚轮缩放，点击设备切换状态。漫游模式支持 WASD 移动。
+      </div>
+    </main>
+
+    <aside class="control-panel">
+      <div class="panel-head">
+        <div class="eyebrow">MIGRATION DEMO</div>
+        <h2>Babylon.js 替换预览</h2>
+        <p>这个页面独立于当前 Three.js 主界面，用来比较引擎迁移后的灯光、材质、发光和交互效果。</p>
+      </div>
+
+      <section class="panel-section">
+        <div class="section-title">迁移可行性</div>
+        <div class="check-list">
+          <div><span></span>PBR 材质和金属反射</div>
+          <div><span></span>GlowLayer 与 Bloom 管线</div>
+          <div><span></span>点击拾取和状态同步</div>
+          <div><span></span>环绕/第一人称相机</div>
+        </div>
+      </section>
+
+      <section class="panel-section">
+        <div class="section-title">设备状态</div>
+        <div class="device-list" id="device-list"></div>
+      </section>
+
+      <section class="panel-section">
+        <div class="section-title">下一步</div>
+        <p class="panel-copy">
+          如果这个视觉方向认可，后续可以把现有 Three.js 的场景层抽成 Babylon 适配层，再逐步迁移厂房结构、布局编辑、设备模型和实时数据绑定。
+        </p>
+      </section>
+    </aside>
+  </div>
+
+  <script src="./libs/babylon.js"></script>
+  <script src="./assets/js/babylon-demo.js"></script>
+</body>
+</html>

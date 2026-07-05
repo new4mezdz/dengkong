@@ -546,7 +546,7 @@ body {
     <div class="hud-top">
       <div>
         <div class="hud-title">FACTORY LIVE VIEW · 3D</div>
-        <div class="hud-subtitle">厂房实时监控</div>
+        <div class="hud-subtitle">场景实时监控</div>
       </div>
       <div class="hud-stats">
         <div class="stat stat-on">
@@ -2866,18 +2866,30 @@ async function toggleLight(lightIdx) {
   }
 }
 
+async function toggleDeviceAll(ip, value) {
+  const st = deviceStatus[ip];
+  if (!st || !st.connected) { alert('设备未连接'); return; }
+  const r = await api('/api/batch', 'POST', { ip: ip, start: 0, end: 16, value: !!value });
+  if (r.ok) {
+    st.relay_states = new Array(16).fill(!!value);
+    applyStatus();
+  } else {
+    alert('控制失败: ' + (r.error || '未知错误'));
+  }
+}
+
 async function batchAll(value) {
   const tasks = [];
   for (const ip in deviceStatus) {
     if (deviceStatus[ip].connected) {
-      tasks.push(api('/api/batch', 'POST', { ip: ip, start: 0, end: 16, value: value }));
+      tasks.push(api('/api/batch', 'POST', { ip: ip, start: 0, end: 16, value: !!value }));
     }
   }
   if (tasks.length === 0) { alert('当前没有已连接的设备'); return; }
   await Promise.all(tasks);
   for (const ip in deviceStatus) {
     if (deviceStatus[ip].connected) {
-      deviceStatus[ip].relay_states = new Array(16).fill(value);
+      deviceStatus[ip].relay_states = new Array(16).fill(!!value);
     }
   }
   applyStatus();
@@ -3620,12 +3632,17 @@ function renderDeviceList() {
       '</div>' +
       '<div class="dev-actions">' +
         (on
+          ? '<button class="dev-btn c" data-act="allon">全开</button><button class="dev-btn d" data-act="alloff">全关</button>'
+          : '') +
+        (on
           ? '<button class="dev-btn d" data-act="disc">Disconnect</button>'
           : '<button class="dev-btn c" data-act="conn">Connect</button>') +
         '<button class="dev-btn x" data-act="del" title="Delete">x</button>' +
       '</div>';
     row.querySelector('[data-act="conn"]')?.addEventListener('click', function() { connectDevice(d); });
     row.querySelector('[data-act="disc"]')?.addEventListener('click', function() { disconnectDevice(d.ip); });
+    row.querySelector('[data-act="allon"]')?.addEventListener('click', function() { toggleDeviceAll(d.ip, true); });
+    row.querySelector('[data-act="alloff"]')?.addEventListener('click', function() { toggleDeviceAll(d.ip, false); });
     row.querySelector('[data-act="del"]').addEventListener('click', function() { delDevice(d.ip); });
     el.appendChild(row);
   });
@@ -3690,6 +3707,7 @@ window.toggleMainPanel = toggleMainPanel;
 window.openPanelSection = openPanelSection;
 window.togglePanelSection = togglePanelSection;
 window.batchAll = batchAll;
+window.toggleDeviceAll = toggleDeviceAll;
 window.refreshStatus = refreshStatus;
 window.toggleLayoutMode = toggleLayoutMode;
 window.setLayoutTool = setLayoutTool;

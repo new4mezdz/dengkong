@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JV-DAM3200 Babylon Layout Preview</title>
+  <link rel="stylesheet" href="./assets/css/app.css">
+  <link rel="stylesheet" href="./assets/css/babylon-app.css">
+</head>
+<body class="babylon-page view-control">
+  <div id="top-tabs">
+    <button class="top-tab" data-view="modeling" type="button">配置</button>
+    <button class="top-tab active" data-view="control" type="button">操控</button>
+    <button class="top-tab" data-view="stats" type="button">统计</button>
+  </div>
+
+  <div id="view-stats">
+    <div class="stats-shell">
+      <div class="stats-top">
+        <div>
+          <div class="stats-title">Babylon 统计预览</div>
+          <div class="stats-subtitle">读取当前工程数据，展示设备、灯具和布局资产概览。</div>
+        </div>
+        <button class="btn btn-ghost" id="stats-refresh" type="button">刷新</button>
+      </div>
+      <div class="stats-cards" id="stats-cards"></div>
+      <div class="stats-grid2">
+        <div class="stats-section">
+          <div class="stats-sec-title">分组状态</div>
+          <div id="stats-groups"></div>
+        </div>
+        <div class="stats-section">
+          <div class="stats-sec-title">布局对象</div>
+          <div id="stats-layout"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="app">
+    <div id="scene-wrap">
+      <canvas id="scene"></canvas>
+
+      <div class="hud-top">
+        <div class="hud-top-left">
+          <div class="hud-clock" id="hud-clock">--:--</div>
+          <div>
+            <div class="hud-title">FACTORY LIVE VIEW · BABYLON</div>
+            <div class="hud-subtitle">场景实时监控</div>
+            <div class="hud-source" id="hud-source">正在加载工程数据...</div>
+          </div>
+        </div>
+        <div class="hud-top-right">
+          <div class="hud-temp">
+            <div class="hud-temp-main" id="hud-temp-main">— °C</div>
+            <div class="hud-temp-cond" id="hud-weather-text">西昌 · --</div>
+            <div class="hud-temp-sub">
+              <span class="high" id="hud-temp-high">— °C</span>
+              <span style="margin: 0 6px; opacity: 0.5;">·</span>
+              <span class="low" id="hud-temp-low">— °C</span>
+            </div>
+            <div class="hud-engine-line"><span id="hud-style">科技夜景</span> · <span id="hud-fps">-- FPS</span></div>
+          </div>
+          <div class="hud-stats">
+            <div class="stat stat-on">
+              <div class="stat-val" id="stat-on">0</div>
+              <div class="stat-lbl">已开</div>
+            </div>
+            <div class="stat">
+              <div class="stat-val" id="stat-off">0</div>
+              <div class="stat-lbl">关闭</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="hud-hint" id="scene-hint">左键拖动旋转 · 滚轮缩放 · 点击灯具切换 · 可切换漫游模式</div>
+
+      <button class="hud-edit hud-walk" id="walk-toggle" type="button">
+        <div class="edit-dot"></div>
+        <span id="walk-label">第一人称: 关</span>
+      </button>
+      <div class="device-pop" id="device-pop" hidden></div>
+      <div class="scene-toast" id="scene-toast" hidden></div>
+    </div>
+
+    <div id="control-panel">
+      <div class="cp-head">
+        <div>
+          <div class="cp-title">操控</div>
+          <div class="cp-subtitle">Babylon 渲染 · 当前工程布局</div>
+        </div>
+        <div class="cv-modes">
+          <button class="cv-mode active" type="button" data-mode="group">分组</button>
+          <button class="cv-mode" type="button" data-mode="list">列表</button>
+        </div>
+      </div>
+      <div class="cp-actions cp-primary-actions" id="cv-main-actions"></div>
+      <div class="cv-body" id="cv-body"></div>
+    </div>
+
+    <div id="panel">
+      <button type="button" id="panel-toggle" aria-expanded="true" aria-controls="panel-main" title="收起控制面板">
+        <span class="panel-toggle-glyph" id="panel-toggle-glyph">&gt;</span>
+      </button>
+
+      <div class="panel-mini" id="panel-mini" aria-hidden="true">
+        <button type="button" class="panel-mini-open" id="panel-mini-open-btn">展开</button>
+        <div class="panel-mini-label">配置</div>
+        <button type="button" class="panel-mini-chip" data-section="devices">
+          <span class="panel-mini-chip-kicker">设备</span>
+          <span class="panel-mini-chip-value" id="mini-devices">0</span>
+        </button>
+        <button type="button" class="panel-mini-chip" data-section="appliances">
+          <span class="panel-mini-chip-kicker">灯具</span>
+          <span class="panel-mini-chip-value" id="mini-appliances">0</span>
+        </button>
+        <button type="button" class="panel-mini-chip" data-section="layout">
+          <span class="panel-mini-chip-kicker">布局</span>
+          <span class="panel-mini-chip-value" id="mini-layout">0</span>
+        </button>
+      </div>
+
+      <div class="panel-main" id="panel-main">
+        <div class="card head-card">
+          <div class="head-top">
+            <div class="head-copy">
+              <div class="head-title">JV-DAM3200</div>
+              <div class="head-sub">Babylon.js 主布局重构预览</div>
+            </div>
+            <button type="button" class="panel-visibility-btn" id="panel-visibility-btn">收起侧栏</button>
+          </div>
+          <div class="head-row">
+            <button class="btn btn-primary" id="reload-config" type="button">重新加载</button>
+            <button class="btn btn-ghost" id="fit-camera" type="button">适配视角</button>
+          </div>
+          <div class="head-inline-status" id="runtime-summary">等待工程数据...</div>
+        </div>
+
+        <div class="card collapsible-card open" id="section-devices">
+          <div class="collapse-bar">
+            <button type="button" class="collapse-head" data-section-toggle="devices">
+              <div class="collapse-copy">
+                <div class="sec-label collapse-title">设备</div>
+                <div class="collapse-meta" id="meta-devices">0 台控制设备</div>
+              </div>
+              <div class="collapse-chevron">v</div>
+            </button>
+          </div>
+          <div class="collapse-body" id="body-devices" aria-hidden="false">
+            <div class="dev-list" id="dev-list"></div>
+          </div>
+        </div>
+
+        <div class="card light-card collapsible-card open" id="section-appliances">
+          <div class="collapse-bar">
+            <button type="button" class="collapse-head" data-section-toggle="appliances">
+              <div class="collapse-copy">
+                <div class="sec-label collapse-title">电器</div>
+                <div class="collapse-meta" id="meta-appliances">0 个灯具</div>
+              </div>
+              <div class="collapse-chevron">v</div>
+            </button>
+            <div class="section-toolbar">
+              <button class="btn btn-ghost" id="all-on" type="button">全开</button>
+              <button class="btn btn-ghost" id="all-off" type="button">全关</button>
+            </div>
+          </div>
+          <div class="collapse-body" id="body-appliances" aria-hidden="false">
+            <div class="light-rows" id="light-rows"></div>
+          </div>
+        </div>
+
+        <div class="card collapsible-card open" id="section-layout">
+          <div class="collapse-bar">
+            <button type="button" class="collapse-head" data-section-toggle="layout">
+              <div class="collapse-copy">
+                <div class="sec-label collapse-title">布局</div>
+                <div class="collapse-meta" id="meta-layout">0 个布局对象</div>
+              </div>
+              <div class="collapse-chevron">v</div>
+            </button>
+          </div>
+          <div class="collapse-body" id="body-layout" aria-hidden="false">
+            <div class="layout-list" id="layout-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="./libs/babylon.js"></script>
+  <script src="./assets/js/babylon-app.js"></script>
+</body>
+</html>

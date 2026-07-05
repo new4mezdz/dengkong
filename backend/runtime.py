@@ -1,5 +1,6 @@
 import threading
 
+from backend.device_config import DEFAULT_CHANNEL_COUNT
 from backend.modbus import ModbusTCP
 
 
@@ -14,7 +15,7 @@ class DeviceRuntime:
         if not connection.connect(ip, port):
             return {"ok": False, "error": "连接失败"}
 
-        states = connection.read_coils(unit_id, 0, 16)
+        states = connection.read_coils(unit_id, 0, DEFAULT_CHANNEL_COUNT)
         with self._lock:
             self._device_states[ip] = {
                 "connected": True,
@@ -53,7 +54,7 @@ class DeviceRuntime:
             if state.get("connected"):
                 try:
                     connection = self._connections.get(ip)
-                    states = connection.read_coils(state["unit_id"], 0, 16)
+                    states = connection.read_coils(state["unit_id"], 0, DEFAULT_CHANNEL_COUNT)
                     with self._lock:
                         state["relay_states"] = states
                     result[ip] = {
@@ -67,14 +68,14 @@ class DeviceRuntime:
                     result[ip] = {
                         "connected": False,
                         "name": state.get("name", ""),
-                        "relay_states": state.get("relay_states", [False] * 16),
+                        "relay_states": state.get("relay_states", [False] * DEFAULT_CHANNEL_COUNT),
                         "error": str(error),
                     }
             else:
                 result[ip] = {
                     "connected": False,
                     "name": state.get("name", ""),
-                    "relay_states": state.get("relay_states", [False] * 16),
+                    "relay_states": state.get("relay_states", [False] * DEFAULT_CHANNEL_COUNT),
                 }
 
         return {"devices": result}

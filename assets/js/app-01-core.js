@@ -102,7 +102,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.15;
+renderer.toneMappingExposure = 1.0;
 
 const FLOOR_LAYER = Object.freeze({
   outdoor: -0.1,
@@ -303,13 +303,13 @@ function updateWalkInteractUI() {
   const meta = document.getElementById('walk-interact-meta');
   const button = document.getElementById('walk-interact-btn');
   const hint = document.getElementById('scene-hint');
-  if (!reticle || !panel || !title || !meta || !button) return;
-
-  reticle.classList.toggle('show', !!walkMode);
-  reticle.classList.toggle('active', walkInteractTargetIdx != null);
+  if (reticle) {
+    reticle.classList.toggle('show', !!walkMode);
+    reticle.classList.toggle('active', walkInteractTargetIdx != null);
+  }
 
   if (!walkMode) {
-    panel.hidden = true;
+    if (panel) panel.hidden = true;
     return;
   }
 
@@ -319,6 +319,7 @@ function updateWalkInteractUI() {
       : '\u7b2c\u4e00\u4eba\u79f0\u6f2b\u6e38 \u00b7 \u70b9\u51fb\u573a\u666f\u9501\u5b9a\u9f20\u6807 \u00b7 WASD/\u65b9\u5411\u952e\u884c\u8d70 \u00b7 E/Enter \u4ea4\u4e92\u5f53\u524d\u8bbe\u5907 \u00b7 Esc \u9000\u51fa';
   }
 
+  if (!panel || !title || !meta || !button) return;  // 交互提示框已删除, 跳过其余面板 UI
   panel.hidden = false;
   const lamp = getWalkInteractLamp();
   if (!lamp) {
@@ -512,12 +513,12 @@ document.addEventListener('mousemove', function(e) {
   updateWalkLookTarget();
 });
 
-// 光照 (Tibber 风格: 整体压暗, 让室内灯具自己发光形成温馨氛围)
-scene.add(new THREE.AmbientLight(0xfff0d8, 0.32));
-const hemi = new THREE.HemisphereLight(0x8a94a4, 0x3a342a, 0.5);
+// 光照 (整体压暗环境光, 让灯具自身的打光成为主光源, 突出灯光对地面/环境的影响)
+scene.add(new THREE.AmbientLight(0xeef0e6, 0.16));
+const hemi = new THREE.HemisphereLight(0x7c8694, 0x2f3a2c, 0.26);
 hemi.position.set(0, 60 * SCALE, 0);
 scene.add(hemi);
-const moon = new THREE.DirectionalLight(0xffe7c2, 0.55);
+const moon = new THREE.DirectionalLight(0xffe7c2, 0.34);
 moon.position.set(20 * SCALE, 40 * SCALE, 25 * SCALE);
 moon.castShadow = true;
 moon.shadow.mapSize.set(4096, 4096);
@@ -529,7 +530,7 @@ moon.shadow.camera.far = 500;
 moon.shadow.bias = -0.00015;
 moon.shadow.normalBias = 0.12;
 scene.add(moon);
-const fill = new THREE.DirectionalLight(0x4a5566, 0.18);
+const fill = new THREE.DirectionalLight(0x4a5566, 0.09);
 fill.position.set(-20 * SCALE, 20 * SCALE, -10 * SCALE);
 scene.add(fill);
 
@@ -546,7 +547,7 @@ scene.add(factoryGroup);
 // ========== 动态电器标记 ==========
 const DEFAULT_ITEM_TYPE = 'lamp';
 const ITEM_TYPES = {
-  lamp: { label: '灯', icon: '💡', short: '灯', accent: '#ffd93d', accentHex: 0xffd93d, mode: 'lamp' },
+  lamp: { label: '灯', icon: '⏻', short: '灯', accent: '#0F52BA', accentHex: 0x0f52ba, mode: 'lamp' },
   printer: { label: '打印机', icon: '🖨', short: '打', accent: '#5ac8fa', accentHex: 0x5ac8fa, mode: 'icon' },
   smoke_machine: { label: '产烟机', icon: '💨', short: '烟', accent: '#8ef0ff', accentHex: 0x8ef0ff, mode: 'icon' },
   fan: { label: '风扇', icon: '🌀', short: '扇', accent: '#64d2ff', accentHex: 0x64d2ff, mode: 'icon' },
@@ -979,12 +980,54 @@ function makeWoodPlankTexture(repeatX, repeatY) {
   return tex;
 }
 
+// 浅绿高光环氧自流平地坪, 整体近乎无缝
+function makeEpoxyFloorTexture(repeatX, repeatY) {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 512;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#E7FFC2';
+  ctx.fillRect(0, 0, 512, 512);
+  // 细腻噪点, 制造涂层的微观不均。
+  const img = ctx.getImageData(0, 0, 512, 512);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const n = (Math.random() - 0.5) * 8;
+    d[i] = Math.max(0, Math.min(255, d[i] + n - 2));
+    d[i + 1] = Math.max(0, Math.min(255, d[i + 1] + n));
+    d[i + 2] = Math.max(0, Math.min(255, d[i + 2] + n - 5));
+  }
+  ctx.putImageData(img, 0, 0);
+  // 柔和的大块明暗斑驳, 让平整地坪不至于死板。
+  for (let k = 0; k < 18; k++) {
+    const x = Math.random() * 512;
+    const y = Math.random() * 512;
+    const r = 60 + Math.random() * 90;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    const lighten = Math.random() < 0.5;
+    g.addColorStop(0, lighten ? 'rgba(255,255,240,0.07)' : 'rgba(126,150,96,0.05)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // 极淡的分格缝 (现场是整体浇筑, 仅留一点点分块痕迹)
+  ctx.strokeStyle = 'rgba(126,150,96,0.05)';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(1, 1, 510, 510);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(repeatX, repeatY);
+  if (THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 // 室内涂料墙 (微噪点的暖白)
 function makeInteriorWallTexture(repeatX, repeatY) {
   const c = document.createElement('canvas');
   c.width = c.height = 256;
   const ctx = c.getContext('2d');
-  ctx.fillStyle = '#d8cdbd';
+  ctx.fillStyle = '#C8B89B';
   ctx.fillRect(0, 0, 256, 256);
   const img = ctx.getImageData(0, 0, 256, 256);
   const d = img.data;
@@ -1058,9 +1101,9 @@ function rebuildFactoryScene() {
   while (factoryGroup.children.length) disposeObjectGraph(factoryGroup.children[0]);
 
   // 智能家居风格的内饰材质
-  const woodTex = makeWoodPlankTexture(
-    Math.max(8, BUILDING.configWidth / 5),
-    Math.max(6, BUILDING.configDepth / 5)
+  const floorTex = makeEpoxyFloorTexture(
+    Math.max(6, BUILDING.configWidth / 10),
+    Math.max(4, BUILDING.configDepth / 10)
   );
   const wallTex = makeInteriorWallTexture(
     Math.max(6, BUILDING.configWidth / 8), 1
@@ -1070,7 +1113,7 @@ function rebuildFactoryScene() {
   );
 
   const groundMat = new THREE.MeshStandardMaterial({
-    map: woodTex, color: 0xc8a07a, roughness: 0.78, metalness: 0.05
+    map: floorTex, color: 0xffffff, roughness: 0.36, metalness: 0.1
   });
   // 室外平台 (一圈柔和暗色, 避免完全空旷)
   const outdoorMat = new THREE.MeshStandardMaterial({
@@ -1078,11 +1121,11 @@ function rebuildFactoryScene() {
   });
   // 室内墙: 暖白涂料 (BoxGeometry 已含内/外两面, 不开 DoubleSide 避免半透明排序闪烁)
   const wallMat = new THREE.MeshStandardMaterial({
-    map: wallTex, color: 0xd8cab4, roughness: 0.86, metalness: 0.02
+    map: wallTex, color: 0xffffff, roughness: 0.86, metalness: 0.02
   });
   // 墙顶收口, 让厂房呈现参考图那种厚实的剖面边缘。
   const wallCapMat = new THREE.MeshStandardMaterial({
-    color: 0x9c988e, roughness: 0.66, metalness: 0.06
+    color: 0xaa9a80, roughness: 0.66, metalness: 0.06
   });
   // 踢脚线/门套 (深木色)
   const skirtingMat = new THREE.MeshStandardMaterial({
@@ -1096,6 +1139,7 @@ function rebuildFactoryScene() {
   // ---- 室外大地坪 (低调暗色, 仅留少许景深) ----
   const outerSize = Math.max(BUILDING.width, BUILDING.depth) * 3;
   const outdoor = new THREE.Mesh(new THREE.PlaneGeometry(outerSize, outerSize), outdoorMat);
+  outdoor.userData.techTag = 'outdoor';
   outdoor.rotation.x = -Math.PI / 2;
   outdoor.position.y = FLOOR_LAYER.outdoor;
   outdoor.receiveShadow = true;
@@ -1103,6 +1147,7 @@ function rebuildFactoryScene() {
 
   // ---- 室内木地板 ----
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(BUILDING.width, BUILDING.depth), groundMat);
+  ground.userData.techTag = 'ground';
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = FLOOR_LAYER.ground;
   ground.receiveShadow = true;
@@ -1119,22 +1164,22 @@ function rebuildFactoryScene() {
 
   // ---- 后 / 左 / 右 三面墙 ----
   addMesh(shell, new THREE.BoxGeometry(BUILDING.width + wallT * 2, wallH, wallT), wallMat,
-    [0, wallH / 2, -BUILDING.halfD - wallT / 2]);
+    [0, wallH / 2, -BUILDING.halfD - wallT / 2]).userData.techTag = 'shellWall';
   addMesh(shell, new THREE.BoxGeometry(wallT, wallH, BUILDING.depth), wallMat,
-    [-BUILDING.halfW - wallT / 2, wallH / 2, 0]);
+    [-BUILDING.halfW - wallT / 2, wallH / 2, 0]).userData.techTag = 'shellWall';
   addMesh(shell, new THREE.BoxGeometry(wallT, wallH, BUILDING.depth), wallMat,
-    [BUILDING.halfW + wallT / 2, wallH / 2, 0]);
+    [BUILDING.halfW + wallT / 2, wallH / 2, 0]).userData.techTag = 'shellWall';
 
   // ---- 正面墙 + 简洁双开门 ----
   const doorW = Math.min(BUILDING.width * 0.18, 12 * SCALE);
   const doorH = Math.min(wallH * 0.6, wallH - 4);
   const sideW = (BUILDING.width - doorW) / 2;
   addMesh(shell, new THREE.BoxGeometry(sideW + wallT, wallH, wallT), wallMat,
-    [-(doorW / 2 + sideW / 2 + wallT / 2), wallH / 2, BUILDING.halfD + wallT / 2]);
+    [-(doorW / 2 + sideW / 2 + wallT / 2), wallH / 2, BUILDING.halfD + wallT / 2]).userData.techTag = 'shellWall';
   addMesh(shell, new THREE.BoxGeometry(sideW + wallT, wallH, wallT), wallMat,
-    [(doorW / 2 + sideW / 2 + wallT / 2), wallH / 2, BUILDING.halfD + wallT / 2]);
+    [(doorW / 2 + sideW / 2 + wallT / 2), wallH / 2, BUILDING.halfD + wallT / 2]).userData.techTag = 'shellWall';
   addMesh(shell, new THREE.BoxGeometry(doorW, wallH - doorH, wallT), wallMat,
-    [0, doorH + (wallH - doorH) / 2, BUILDING.halfD + wallT / 2]);
+    [0, doorH + (wallH - doorH) / 2, BUILDING.halfD + wallT / 2]).userData.techTag = 'shellWall';
   // 双开木门 (放在墙厚内, 避免 z-fighting)
   addMesh(shell, new THREE.BoxGeometry(doorW / 2 - 0.06, doorH, 0.16), doorMat,
     [-(doorW / 4 + 0.04), doorH / 2, BUILDING.halfD + wallT - 0.12]);
@@ -1563,13 +1608,13 @@ function createWallObject(wall, selected) {
   group.rotation.y = angle;
 
   const wallMat = new THREE.MeshStandardMaterial({
-    color: selected ? 0xffc47a : 0xd6c8b4,
+    color: selected ? 0xffc47a : 0xc8b89b,
     roughness: 0.74, metalness: 0.04,
     emissive: selected ? 0x55310a : 0x000000,
     emissiveIntensity: selected ? 0.18 : 0
   });
   const capMat = new THREE.MeshStandardMaterial({
-    color: selected ? 0xe6a653 : 0x9b968c,
+    color: selected ? 0xe6a653 : 0xaa9a80,
     roughness: 0.52, metalness: 0.18,
     emissive: selected ? 0x55310a : 0x000000,
     emissiveIntensity: selected ? 0.16 : 0

@@ -1,5 +1,5 @@
 DEFAULT_DEVICE_PROTOCOL = "modbus_tcp"
-DEFAULT_CHANNEL_COUNT = 16
+DEFAULT_CHANNEL_COUNT = 32
 
 PROTOCOL_DEFAULTS = {
     "modbus_tcp": {
@@ -38,9 +38,7 @@ def normalize_device_config(device):
     defaults = PROTOCOL_DEFAULTS[protocol]
     normalized = {
         "name": str(source.get("name") or "默认设备"),
-        "ip": str(source.get("ip") or "").strip(),
         "protocol": protocol,
-        "port": _coerce_int(source.get("port"), defaults["port"], minimum=1, maximum=65535),
         "channel_count": _coerce_int(
             source.get("channel_count"),
             DEFAULT_CHANNEL_COUNT,
@@ -52,6 +50,8 @@ def normalize_device_config(device):
     if protocol == "siemens_s7":
         normalized.update(
             {
+                "ip": str(source.get("ip") or "").strip(),
+                "port": _coerce_int(source.get("port"), defaults["port"], minimum=1, maximum=65535),
                 "rack": _coerce_int(source.get("rack"), defaults["rack"], minimum=0, maximum=7),
                 "slot": _coerce_int(source.get("slot"), defaults["slot"], minimum=1, maximum=32),
                 "db_number": _coerce_int(
@@ -69,11 +69,17 @@ def normalize_device_config(device):
             }
         )
     else:
-        normalized["unit_id"] = _coerce_int(
-            source.get("unit_id"),
-            defaults["unit_id"],
-            minimum=0,
-            maximum=255,
+        normalized.update(
+            {
+                "ip": str(source.get("ip") or "").strip(),
+                "port": _coerce_int(source.get("port"), defaults["port"], minimum=1, maximum=65535),
+                "unit_id": _coerce_int(
+                    source.get("unit_id"),
+                    defaults["unit_id"],
+                    minimum=0,
+                    maximum=255,
+                ),
+            }
         )
 
     return normalized

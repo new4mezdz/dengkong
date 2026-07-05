@@ -10,3 +10,7 @@ Thumbs.db
 .idea/
 .tmp-edge-profile/
 .tmp-validation/
+.codex-artifacts/
+build/
+dist/
+*.bak
