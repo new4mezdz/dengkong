@@ -1227,21 +1227,22 @@ function renderLightRows() {
     const status = deviceStatus[light.device_ip];
     const connected = !!(status && status.connected);
     const on = connected && status.relay_states && status.relay_states[light.channel];
+    const pending = connected && typeof isChannelPending === 'function' && isChannelPending(light.device_ip, light.channel);
     const row = document.createElement('div');
-    row.className = 'light-row' + (connected ? '' : ' disabled');
+    row.className = 'light-row' + (connected ? '' : ' disabled') + (pending ? ' pending' : '');
     row.id = 'lrow-' + index;
     const deviceName = getDeviceDisplayName(light.device_ip);
     const groupLabel = getGroupLabel(getLightGroupKey(light));
     row.innerHTML =
-      '<div class="l-dot' + (on ? ' on' : '') + '"></div>' +
-      '<div class="l-icon' + (on ? ' on' : '') + '" style="--icon-accent:' + meta.accent + ';">' + escapeHtml(meta.icon) + '</div>' +
+      '<div class="l-dot' + (on ? ' on' : '') + (pending ? ' pending' : '') + '"></div>' +
+      '<div class="l-icon' + (on ? ' on' : '') + (pending ? ' pending' : '') + '" style="--icon-accent:' + meta.accent + ';">' + escapeHtml(meta.icon) + '</div>' +
       '<div class="l-info">' +
-        '<div class="l-name' + (on ? ' on' : '') + '">' + escapeHtml(light.name || '未命名电器') + '</div>' +
+        '<div class="l-name' + (on ? ' on' : '') + (pending ? ' pending' : '') + '">' + escapeHtml(light.name || '未命名电器') + '</div>' +
         '<div class="l-sub">' + escapeHtml(meta.label) + ' / ' + escapeHtml(deviceName) + ' / 通道' + String(light.channel + 1).padStart(2, '0') + '</div>' +
         '<div class="l-meta-row"><span class="l-group">' + escapeHtml(groupLabel) + '</span></div>' +
       '</div>' +
-      '<div class="l-state' + (on ? ' on' : '') + '">' + (connected ? (on ? '开' : '关') : '--') + '</div>' +
-      '<div class="toggle' + (on ? ' on' : '') + '"><div class="toggle-knob"></div></div>';
+      '<div class="l-state' + (on ? ' on' : '') + (pending ? ' pending' : '') + '">' + (pending ? '\u786e\u8ba4\u4e2d' : (connected ? (on ? '开' : '关') : '--')) + '</div>' +
+      '<div class="toggle' + (on ? ' on' : '') + (pending ? ' pending' : '') + '"><div class="toggle-knob"></div></div>';
     row.onclick = function() { toggleLight(index); };
     el.appendChild(row);
   });
@@ -1249,7 +1250,8 @@ function renderLightRows() {
   refreshPanelSections();
 }
 
-function setLightRowUI(index, on, connected) {
+function setLightRowUI(index, on, connected, pending) {
+  pending = !!pending;
   const row = document.getElementById('lrow-' + index);
   if (!row) return;
   const dot = row.querySelector('.l-dot');
@@ -1274,6 +1276,13 @@ function setLightRowUI(index, on, connected) {
     toggle.classList.remove('on');
   }
 
+  row.classList.toggle('pending', pending);
+  dot.classList.toggle('pending', pending);
+  icon.classList.toggle('pending', pending);
+  name.classList.toggle('pending', pending);
+  state.classList.toggle('pending', pending);
+  toggle.classList.toggle('pending', pending);
+  if (pending) state.textContent = '\u786e\u8ba4\u4e2d';
   row.classList.toggle('disabled', !connected);
 }
 
@@ -1285,6 +1294,16 @@ async function toggleLight(lightIdx) {
   const status = deviceStatus[light.device_ip];
   if (!status || !status.connected) {
     showToast('warn', '设备离线', '请先连接目标控制设备，再切换该电器。');
+    return;
+  }
+
+  if (typeof toggleDeviceChannel === 'function') {
+    lightToggleLocks.add(lightIdx);
+    try {
+      await toggleDeviceChannel(light.device_ip, light.channel);
+    } finally {
+      lightToggleLocks.delete(lightIdx);
+    }
     return;
   }
 
@@ -1422,13 +1441,15 @@ async function refreshStatus(options) {
 }
 
 function applyStatus() {
+  if (typeof reconcilePendingControls === 'function') reconcilePendingControls();
   renderDeviceList();
   config.lights.forEach(function(light, index) {
     const status = deviceStatus[light.device_ip];
     const connected = !!(status && status.connected);
     const on = connected && status.relay_states && status.relay_states[light.channel];
+    const pending = connected && typeof isChannelPending === 'function' && isChannelPending(light.device_ip, light.channel);
     setLampState(index, !!on);
-    setLightRowUI(index, !!on, connected);
+    setLightRowUI(index, !!on, connected, pending);
   });
   updateCounts();
   refreshExperiencePanels();

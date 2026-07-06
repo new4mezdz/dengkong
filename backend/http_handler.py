@@ -33,8 +33,8 @@ def create_handler(runtime, config_store):
             path = urlparse(self.path).path
 
             if path in {"/", "/index.html"}:
-                # Keep the public URL stable while serving the refactored page shell.
-                self.path = "/app.html"
+                # Keep the public URL stable while serving the Babylon runtime page.
+                self.path = "/babylon-app.html"
                 return super().do_GET()
 
             if path == "/api/config":
