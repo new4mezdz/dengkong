@@ -292,12 +292,14 @@ body {
 .light-row:hover { background: #1a1a1c; }
 .light-row.disabled { opacity: 0.4; cursor: not-allowed; }
 .light-row.disabled:hover { background: transparent; }
+.light-row.pending { background: rgba(255, 211, 106, 0.08); }
 .l-dot {
   width: 10px; height: 10px; border-radius: 50%;
   background: #2c2c2e; border: 1px solid #48484a;
   flex-shrink: 0;
 }
 .l-dot.on { background: #30d158; border-color: transparent; box-shadow: 0 0 6px #30d158; }
+.l-dot.pending { background: #ffd36a; border-color: transparent; box-shadow: 0 0 8px rgba(255, 211, 106, 0.72); }
 .l-icon {
   width: 28px; height: 28px; border-radius: 9px;
   display: flex; align-items: center; justify-content: center;
@@ -310,18 +312,24 @@ body {
   background: var(--icon-accent, #30d158); border-color: transparent;
   color: #fff; box-shadow: 0 0 10px rgba(255,255,255,0.12);
 }
+.l-icon.pending {
+  background: rgba(255, 211, 106, 0.14); border-color: rgba(255, 211, 106, 0.42);
+  color: #ffd36a; box-shadow: 0 0 12px rgba(255, 211, 106, 0.16);
+}
 .l-info { flex: 1; min-width: 0; overflow: hidden; }
 .l-name {
   font-size: 13px; font-weight: 700; color: #8e8e93;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .l-name.on { color: #fff; }
+.l-name.pending { color: #ffe3a3; }
 .l-sub {
   font-size: 9px; color: #48484a; margin-top: 1px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .l-state { font-size: 9px; font-weight: 700; color: #48484a; flex-shrink: 0; }
 .l-state.on { color: #30d158; }
+.l-state.pending { color: #ffd36a; }
 
 /* iOS 开关 */
 .toggle {
@@ -330,12 +338,17 @@ body {
   flex-shrink: 0;
 }
 .toggle.on { background: #30d158; }
+.toggle.pending { background: rgba(255, 211, 106, 0.38); }
 .toggle-knob {
   position: absolute; top: 2px; left: 2px; width: 20px; height: 20px;
   background: #fff; border-radius: 50%; transition: transform 0.2s;
   box-shadow: 0 1px 3px rgba(0,0,0,0.3);
 }
 .toggle.on .toggle-knob { transform: translateX(16px); }
+.toggle.pending .toggle-knob {
+  transform: translateX(8px);
+  background: #ffe3a3;
+}
 
 .empty-tip {
   padding: 20px; text-align: center; color: #48484a; font-size: 12px;
@@ -2015,6 +2028,10 @@ body.control-mode .hud-edit, body.control-mode .hud-walk { display: none; }
   border-color: #1c5a2e;
   box-shadow: inset 0 0 10px rgba(0,0,0,0.6), 0 0 8px rgba(48,209,88,0.18);
 }
+.lsw.pending .lsw-pill {
+  border-color: rgba(255, 211, 106, 0.72);
+  box-shadow: inset 0 0 10px rgba(0,0,0,0.6), 0 0 16px rgba(255, 211, 106, 0.24);
+}
 .lsw-glow {
   position: absolute; top: 50%; transform: translateY(-50%);
   width: 38px; height: 38px; border-radius: 50%; pointer-events: none;
@@ -2027,6 +2044,10 @@ body.control-mode .hud-edit, body.control-mode .hud-walk { display: none; }
   left: 2px;
   background: radial-gradient(circle, #5bef86 0%, #16a34a 50%, rgba(22,163,74,0) 72%);
 }
+.lsw.pending .lsw-glow {
+  left: 24px;
+  background: radial-gradient(circle, #ffe3a3 0%, #ffd36a 48%, rgba(255,211,106,0) 72%);
+}
 .lsw-text {
   position: absolute; top: 0; bottom: 0; left: 12px;
   display: flex; align-items: center; z-index: 2;
@@ -2034,6 +2055,7 @@ body.control-mode .hud-edit, body.control-mode .hud-walk { display: none; }
   transition: left 0.32s cubic-bezier(.4,.0,.2,1);
 }
 .lsw.on .lsw-text { left: 52px; }
+.lsw.pending .lsw-text { left: 26px; color: #ffe3a3; letter-spacing: 0.5px; }
 .lsw-label {
   font-size: 11px; font-weight: 700; color: #cfd3da;
   max-width: 92px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;

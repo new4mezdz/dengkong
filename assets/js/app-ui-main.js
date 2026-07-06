@@ -240,6 +240,82 @@ function setControlMode(mode) {
   renderControlView();
 }
 
+const CONTROL_PENDING_MIN_MS = 650;
+const CONTROL_PENDING_TIMEOUT_MS = 9000;
+const pendingControlOps = {};
+
+function controlPendingKey(ip, channel) {
+  return String(ip || '') + '#' + String(channel);
+}
+
+function getRelayActualState(ip, channel) {
+  const status = deviceStatus[ip];
+  if (!status || !status.connected || !status.relay_states) return null;
+  if (!Object.prototype.hasOwnProperty.call(status.relay_states, channel)) return null;
+  return !!status.relay_states[channel];
+}
+
+function getPendingControl(ip, channel) {
+  const key = controlPendingKey(ip, channel);
+  const pending = pendingControlOps[key];
+  if (!pending) return null;
+  const now = Date.now();
+  const actual = getRelayActualState(ip, channel);
+  const minElapsed = now - pending.startedAt >= CONTROL_PENDING_MIN_MS;
+  if (actual === pending.target && minElapsed) {
+    delete pendingControlOps[key];
+    return null;
+  }
+  if (now > pending.expiresAt) {
+    delete pendingControlOps[key];
+    showToast('warn', '确认超时', '设备回读暂未确认该通道状态，请稍后刷新查看。');
+    return null;
+  }
+  return pending;
+}
+
+function isChannelPending(ip, channel) {
+  return !!getPendingControl(ip, channel);
+}
+
+function getChannelPendingTarget(ip, channel) {
+  const pending = getPendingControl(ip, channel);
+  return pending ? pending.target : null;
+}
+
+function reconcilePendingControls() {
+  Object.keys(pendingControlOps).forEach(function(key) {
+    const parts = key.split('#');
+    getPendingControl(parts[0], parseInt(parts[1], 10));
+  });
+}
+
+function markChannelPending(ip, channel, target) {
+  pendingControlOps[controlPendingKey(ip, channel)] = {
+    ip: ip,
+    channel: channel,
+    target: !!target,
+    startedAt: Date.now(),
+    expiresAt: Date.now() + CONTROL_PENDING_TIMEOUT_MS
+  };
+  setTimeout(function() {
+    reconcilePendingControls();
+    if (typeof applyStatus === 'function') applyStatus();
+  }, CONTROL_PENDING_MIN_MS + 40);
+  setTimeout(function() {
+    reconcilePendingControls();
+    if (typeof applyStatus === 'function') applyStatus();
+  }, CONTROL_PENDING_TIMEOUT_MS + 40);
+}
+
+function clearChannelPending(ip, channel) {
+  delete pendingControlOps[controlPendingKey(ip, channel)];
+}
+
+window.isChannelPending = isChannelPending;
+window.getChannelPendingTarget = getChannelPendingTarget;
+window.reconcilePendingControls = reconcilePendingControls;
+
 async function toggleDeviceChannel(ip, channel) {
   const status = deviceStatus[ip];
   if (!status || !status.connected) {
@@ -247,17 +323,23 @@ async function toggleDeviceChannel(ip, channel) {
     return;
   }
   const current = !!(status.relay_states && status.relay_states[channel]);
+  const target = !current;
+  if (isChannelPending(ip, channel)) return;
+  markChannelPending(ip, channel, target);
+  applyStatus();
   try {
-    const result = await api('/api/toggle', 'POST', { ip: ip, channel: channel, value: !current });
+    const result = await api('/api/toggle', 'POST', { ip: ip, channel: channel, value: target });
     if (result.ok) {
-      if (!status.relay_states) status.relay_states = [];
-      status.relay_states[channel] = !current;
-      applyStatus();
+      refreshStatus({ force: true, silent: true });
       scheduleStatusPoll(200);
     } else {
+      clearChannelPending(ip, channel);
+      applyStatus();
       showToast('error', '控制失败', getFriendlyMessage(result.error || '未知错误', 'control'));
     }
   } catch (error) {
+    clearChannelPending(ip, channel);
+    applyStatus();
     showToast('error', '控制失败', getFriendlyMessage(getErrorMessage(error, '未知错误'), 'control'));
   }
 }
@@ -306,11 +388,11 @@ async function toggleDeviceAll(ip, value) {
 
 function controlBreakerHtml(o) {
   // 胶囊滑动开关: 开=绿光在左+ON, 关=橙光在右+OFF; 只显示灯名(如"灯 4-1")
-  const cls = 'lsw' + (o.on ? ' on' : '') + (o.connected ? '' : ' offline');
+  const cls = 'lsw' + (o.on ? ' on' : '') + (o.pending ? ' pending' : '') + (o.connected ? '' : ' offline');
   return '<div class="' + cls + '" data-ip="' + escapeHtml(o.ip) + '" data-ch="' + o.channel +
     '" data-light="' + o.lightIdx + '" title="' + escapeHtml(o.label) + '">' +
     '<div class="lsw-pill"><span class="lsw-glow"></span>' +
-      '<span class="lsw-text">' + (o.on ? 'ON' : 'OFF') + '</span></div>' +
+      '<span class="lsw-text">' + (o.pending ? 'WAIT' : (o.on ? 'ON' : 'OFF')) + '</span></div>' +
     '<div class="lsw-label">' + escapeHtml(o.label) + '</div>' +
   '</div>';
 }
@@ -491,8 +573,9 @@ function renderControlByChannel(body) {
       for (let ch = 0; ch < maxCh; ch++) {
         const bound = lightByKey[device.ip + '#' + ch];
         const on = connected && status && status.relay_states && !!status.relay_states[ch];
+        const pending = connected && isChannelPending(device.ip, ch);
         html += controlBreakerHtml({
-          ip: device.ip, channel: ch, lightIdx: bound ? bound.idx : -1, on: on, connected: connected,
+          ip: device.ip, channel: ch, lightIdx: bound ? bound.idx : -1, on: on, pending: pending, connected: connected,
           label: bound ? (bound.light.name || ('通道' + pad2(ch + 1))) : ('通道' + pad2(ch + 1)),
           sub: bound ? ('通道' + pad2(ch + 1)) : '未绑定'
         });
@@ -538,8 +621,9 @@ function renderControlByAppliance(body) {
       const status = deviceStatus[light.device_ip];
       const connected = !!(status && status.connected);
       const on = connected && status.relay_states && !!status.relay_states[light.channel];
+      const pending = connected && isChannelPending(light.device_ip, light.channel);
       html += controlBreakerHtml({
-        ip: light.device_ip, channel: light.channel, lightIdx: idx, on: on, connected: connected,
+        ip: light.device_ip, channel: light.channel, lightIdx: idx, on: on, pending: pending, connected: connected,
         label: light.name || ('通道' + pad2(light.channel + 1)),
         sub: getDeviceDisplayName(light.device_ip) + ' · 通道' + pad2(light.channel + 1)
       });
@@ -580,10 +664,12 @@ function updateControlStates() {
     const status = deviceStatus[ip];
     const connected = !!(status && status.connected);
     const on = connected && status.relay_states && !!status.relay_states[ch];
+    const pending = connected && isChannelPending(ip, ch);
     sw.classList.toggle('on', !!on);
+    sw.classList.toggle('pending', !!pending);
     sw.classList.toggle('offline', !connected);
     const txt = sw.querySelector('.lsw-text');
-    if (txt) txt.textContent = on ? 'ON' : 'OFF';
+    if (txt) txt.textContent = pending ? 'WAIT' : (on ? 'ON' : 'OFF');
   }
   const cards = body.querySelectorAll('.cv-card[data-card-ip]');
   for (let i = 0; i < cards.length; i++) {
@@ -637,10 +723,7 @@ function onControlBodyClick(event) {
     return;
   }
   // 乐观动画: 立即翻转胶囊, 服务器确认后由状态同步校正
-  const nextOn = !sw.classList.contains('on');
-  sw.classList.toggle('on', nextOn);
-  const txt = sw.querySelector('.lsw-text');
-  if (txt) txt.textContent = nextOn ? 'ON' : 'OFF';
+  if (sw.classList.contains('pending')) return;
   const lightIdx = parseInt(sw.getAttribute('data-light'), 10);
   if (Number.isFinite(lightIdx) && lightIdx >= 0) {
     toggleLight(lightIdx);

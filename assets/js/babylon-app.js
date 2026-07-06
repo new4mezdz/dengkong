@@ -9,22 +9,22 @@
   var SCALE = 10;
   var DEFAULT_BUILDING = { width: 120, depth: 64, wallH: 33, ridgeH: 50 };
   var MAX_DYNAMIC_LIGHTS = 14;
+  var DEFAULT_VIEW_ALPHA = 1.70;
+  var DEFAULT_VIEW_BETA = 0.72;
+  var DEFAULT_VIEW_RADIUS_SCALE = 0.92;
 
   var state = {
     config: { devices: [], lights: [], scenes: [], layout: { building: DEFAULT_BUILDING } },
     status: {},
-    backend: false,
-    sourceLabel: '本地工程文件',
     activeStyle: 'tech',
-    controlMode: 'group',
     selectedLight: null,
     walkMode: false,
-    localStates: Object.create(null),
     lightEntries: [],
     layoutEntries: [],
     sceneRoot: null,
     materials: Object.create(null)
   };
+  var orbitPanKeys = Object.create(null);
 
   var canvas = document.getElementById('scene');
   var engine = new BABYLON.Engine(canvas, true, {
@@ -33,25 +33,31 @@
     preserveDrawingBuffer: false
   });
 
+  function resizeScene() {
+    var pixelRatio = Math.min(Math.max(window.devicePixelRatio || 1, 1), 1.5);
+    if (engine.setHardwareScalingLevel) engine.setHardwareScalingLevel(1 / pixelRatio);
+    engine.resize();
+  }
+
   var scene = new BABYLON.Scene(engine);
   scene.clearColor = new BABYLON.Color4(0.060, 0.070, 0.083, 1);
   scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
-  scene.fogDensity = 0.00072;
+  scene.fogDensity = 0.00062;
   scene.fogColor = new BABYLON.Color3(0.060, 0.070, 0.083);
   scene.collisionsEnabled = true;
-  scene.environmentIntensity = 0.72;
+  scene.environmentIntensity = 0.90;
 
   if (scene.imageProcessingConfiguration) {
     scene.imageProcessingConfiguration.toneMappingEnabled = true;
     scene.imageProcessingConfiguration.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
-    scene.imageProcessingConfiguration.exposure = 1.28;
-    scene.imageProcessingConfiguration.contrast = 1.06;
+    scene.imageProcessingConfiguration.exposure = 1.42;
+    scene.imageProcessingConfiguration.contrast = 1.03;
   }
 
   var orbitCamera = new BABYLON.ArcRotateCamera(
     'orbit-camera',
-    -Math.PI / 2.18,
-    0.82,
+    DEFAULT_VIEW_ALPHA,
+    DEFAULT_VIEW_BETA,
     850,
     new BABYLON.Vector3(0, 35, 0),
     scene
@@ -97,10 +103,89 @@
     );
   }, { passive: false });
 
+  function isTypingTarget(target) {
+    if (!target) return false;
+    var tag = String(target.tagName || '').toLowerCase();
+    return tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable;
+  }
+
+  function orbitPanDirection(code) {
+    var map = {
+      KeyW: 'forward',
+      ArrowUp: 'forward',
+      KeyS: 'back',
+      ArrowDown: 'back',
+      KeyA: 'left',
+      ArrowLeft: 'left',
+      KeyD: 'right',
+      ArrowRight: 'right'
+    };
+    return map[code] || null;
+  }
+
+  function clearOrbitPanKeys() {
+    orbitPanKeys = Object.create(null);
+  }
+
+  function handleOrbitPanKey(event, pressed) {
+    if (isTypingTarget(event.target) || event.ctrlKey || event.metaKey || event.altKey) return;
+    var direction = orbitPanDirection(event.code);
+    if (!direction) return;
+    if (!pressed) orbitPanKeys[direction] = false;
+    if (scene.activeCamera !== orbitCamera || state.walkMode) return;
+    orbitPanKeys[direction] = pressed;
+    event.preventDefault();
+  }
+
+  function clampOrbitTarget(target) {
+    var b = state.config && state.config.layout && state.config.layout.building;
+    if (!b) return target;
+    var margin = 160;
+    target.x = clamp(target.x, -b.halfW - margin, b.halfW + margin);
+    target.z = clamp(target.z, -b.halfD - margin, b.halfD + margin);
+    target.y = clamp(target.y, 10, Math.max(80, b.ridgeH + 35));
+    return target;
+  }
+
+  function updateOrbitKeyboardPan() {
+    if (scene.activeCamera !== orbitCamera || state.walkMode) return;
+    if (!orbitPanKeys.forward && !orbitPanKeys.back && !orbitPanKeys.left && !orbitPanKeys.right) return;
+
+    var forward = orbitCamera.target.subtract(orbitCamera.position);
+    forward.y = 0;
+    if (forward.lengthSquared() < 0.0001) {
+      forward = new BABYLON.Vector3(Math.sin(orbitCamera.alpha), 0, Math.cos(orbitCamera.alpha));
+    }
+    forward.normalize();
+    var right = BABYLON.Vector3.Cross(BABYLON.Axis.Y, forward);
+    right.normalize();
+
+    var move = BABYLON.Vector3.Zero();
+    if (orbitPanKeys.forward) move.addInPlace(forward);
+    if (orbitPanKeys.back) move.subtractInPlace(forward);
+    if (orbitPanKeys.right) move.addInPlace(right);
+    if (orbitPanKeys.left) move.subtractInPlace(right);
+    if (move.lengthSquared() < 0.0001) return;
+
+    var dt = Math.min(engine.getDeltaTime() / 1000 || 1 / 60, 0.05);
+    var speed = clamp((orbitCamera.radius || 420) * 0.45, 80, 420);
+    move.normalize().scaleInPlace(speed * dt);
+    orbitCamera.target.addInPlace(move);
+    clampOrbitTarget(orbitCamera.target);
+  }
+
+  window.addEventListener('keydown', function (event) {
+    handleOrbitPanKey(event, true);
+  });
+  window.addEventListener('keyup', function (event) {
+    handleOrbitPanKey(event, false);
+  });
+  window.addEventListener('blur', clearOrbitPanKeys);
+
   var hemi = new BABYLON.HemisphericLight('hemi', new BABYLON.Vector3(0.1, 1, 0.25), scene);
-  hemi.intensity = 0.86;
-  hemi.diffuse = new BABYLON.Color3(0.64, 0.74, 0.86);
-  hemi.groundColor = new BABYLON.Color3(0.08, 0.11, 0.09);
+  hemi.intensity = 1.00;
+  hemi.diffuse = new BABYLON.Color3(0.72, 0.82, 0.92);
+  hemi.groundColor = new BABYLON.Color3(0.14, 0.17, 0.15);
 
   var keyLight = new BABYLON.DirectionalLight('key-light', new BABYLON.Vector3(0.42, -0.82, 0.38), scene);
   keyLight.position = new BABYLON.Vector3(-420, 580, -360);
@@ -110,7 +195,7 @@
   var shadow = new BABYLON.ShadowGenerator(2048, keyLight);
   shadow.useBlurExponentialShadowMap = true;
   shadow.blurKernel = 24;
-  shadow.setDarkness(0.34);
+  shadow.setDarkness(0.27);
 
   var glow = new BABYLON.GlowLayer('main-glow', scene, { mainTextureSamples: 4 });
   glow.intensity = 0.58;
@@ -142,8 +227,8 @@
         [orbitCamera, walkCamera]
       );
       ssaoPipeline.radius = 4.2;
-      ssaoPipeline.totalStrength = 0.95;
-      ssaoPipeline.base = 0.035;
+      ssaoPipeline.totalStrength = 0.74;
+      ssaoPipeline.base = 0.08;
       ssaoPipeline.samples = 8;
       ssaoPipeline.maxZ = 1800;
     }
@@ -196,6 +281,28 @@
   function toNumber(value, fallback) {
     var next = Number(value);
     return Number.isFinite(next) ? next : fallback;
+  }
+
+  function mapConfigPoint(x, z) {
+    return {
+      x: -toNumber(x, 0),
+      z: toNumber(z, 0)
+    };
+  }
+
+  function mapLayoutItem(item) {
+    var next = Object.assign({}, item || {});
+    if (next.x != null || next.z != null) {
+      var point = mapConfigPoint(next.x, next.z);
+      next.x = point.x;
+      next.z = point.z;
+    }
+    if (next.rotation != null) next.rotation = -toNumber(next.rotation, 0);
+    return next;
+  }
+
+  function mapLayoutItems(items) {
+    return Array.isArray(items) ? items.map(mapLayoutItem) : [];
   }
 
   function looksBrokenText(value) {
@@ -274,6 +381,10 @@
     state.materials.path = pbr('path', { color: state.activeStyle === 'tech' ? '#245245' : '#9aa7a2', metallic: 0.05, roughness: 0.56, alpha: 0.78 });
     state.materials.zone = pbr('zone', { color: state.activeStyle === 'tech' ? '#214454' : '#b9c2c0', metallic: 0.05, roughness: 0.52, alpha: state.activeStyle === 'tech' ? 0.54 : 0.64 });
     state.materials.lampFrame = pbr('lamp-frame', { color: state.activeStyle === 'tech' ? '#9bb3c2' : '#d1d8dc', metallic: 0.64, roughness: 0.30 });
+    state.materials.lampBody = pbr('lamp-body', { color: state.activeStyle === 'tech' ? '#252f38' : '#eef3f4', metallic: 0.58, roughness: 0.32 });
+    state.materials.lampEndCap = pbr('lamp-endcap', { color: state.activeStyle === 'tech' ? '#12171d' : '#6a7479', metallic: 0.74, roughness: 0.26 });
+    state.materials.lampTrim = pbr('lamp-trim', { color: state.activeStyle === 'tech' ? '#c5d4dd' : '#f8fbfc', metallic: 0.70, roughness: 0.24 });
+    state.materials.lampCable = pbr('lamp-cable', { color: state.activeStyle === 'tech' ? '#70828e' : '#4c565b', metallic: 0.82, roughness: 0.22 });
     state.materials.floorLine = standard('floor-line', { color: '#35e6a8', emissive: '#35e6a8', alpha: state.activeStyle === 'tech' ? 0.28 : 0.18 });
     state.materials.floorLine.disableDepthWrite = true;
     state.materials.floorLine.alphaMode = BABYLON.Engine.ALPHA_ADD;
@@ -363,90 +474,59 @@
     };
   }
 
-  function normalizeConfig(data) {
-    var cfg = data || {};
+  function pad(value) {
+    return String(value).padStart(2, '0');
+  }
+
+  function getRuntimeConfig() {
+    return (typeof config !== 'undefined' && config) ? config : null;
+  }
+
+  function getRuntimeStatus() {
+    return (typeof deviceStatus !== 'undefined' && deviceStatus) ? deviceStatus : {};
+  }
+
+  function syncRuntimeState() {
+    var cfg = getRuntimeConfig() || {};
     var layout = cfg.layout || {};
     var building = normalizeBuilding(layout.building || DEFAULT_BUILDING);
-    var lights = (Array.isArray(cfg.lights) ? cfg.lights : []).map(normalizeLight);
-    return {
+    var rawLights = Array.isArray(cfg.lights) ? cfg.lights : [];
+    var positions = null;
+    if (typeof computeLayout === 'function') {
+      try {
+        positions = computeLayout(rawLights);
+      } catch (error) {
+        positions = null;
+      }
+    }
+    var lights = rawLights.map(function(light, index) {
+      var next = normalizeLight(light, index);
+      var point = positions && positions[index];
+      var sourceX = point && Number.isFinite(point.x) ? point.x : next.x;
+      var sourceZ = point && Number.isFinite(point.z) ? point.z : next.z;
+      var mapped = mapConfigPoint(sourceX, sourceZ);
+      next.x = mapped.x;
+      next.z = mapped.z;
+      return next;
+    });
+
+    state.config = {
       devices: Array.isArray(cfg.devices) ? cfg.devices : [],
       lights: lights,
       scenes: Array.isArray(cfg.scenes) ? cfg.scenes : [],
       layout: {
         building: building,
-        walls: Array.isArray(layout.walls) ? layout.walls : [],
-        zones: Array.isArray(layout.zones) ? layout.zones : [],
-        pillars: Array.isArray(layout.pillars) ? layout.pillars : [],
-        doors: Array.isArray(layout.doors) ? layout.doors : [],
-        paths: Array.isArray(layout.paths) ? layout.paths : [],
-        workstations: Array.isArray(layout.workstations) ? layout.workstations : [],
-        racks: Array.isArray(layout.racks) ? layout.racks : [],
-        safetyStations: Array.isArray(layout.safetyStations) ? layout.safetyStations : []
+        walls: mapLayoutItems(layout.walls),
+        zones: mapLayoutItems(layout.zones),
+        pillars: mapLayoutItems(layout.pillars),
+        doors: mapLayoutItems(layout.doors),
+        paths: mapLayoutItems(layout.paths),
+        workstations: mapLayoutItems(layout.workstations),
+        racks: mapLayoutItems(layout.racks),
+        safetyStations: mapLayoutItems(layout.safetyStations)
       }
     };
-  }
-
-  function pad(value) {
-    return String(value).padStart(2, '0');
-  }
-
-  async function fetchJson(url) {
-    var res = await fetch(url, { cache: 'no-store' });
-    if (!res.ok) throw new Error(url + ' ' + res.status);
-    return res.json();
-  }
-
-  async function loadConfig() {
-    showToast('正在加载工程数据...', 900);
-    try {
-      var apiConfig = await fetchJson('/api/config');
-      state.config = normalizeConfig(apiConfig);
-      state.backend = true;
-      state.sourceLabel = '后端实时配置';
-    } catch (apiError) {
-      var fileConfig = await fetchJson('./dam1600d_devices.json');
-      state.config = normalizeConfig(fileConfig);
-      state.backend = false;
-      state.sourceLabel = '本地工程文件';
-    }
-
-    await loadStatus();
-    rebuildScene();
-    renderAllPanels();
-    fitCamera();
-    updateHud();
-    showToast(state.sourceLabel + ' 已加载', 1600);
-  }
-
-  async function loadStatus() {
-    if (state.backend) {
-      try {
-        var result = await fetchJson('/api/status');
-        state.status = result.devices || {};
-        return;
-      } catch (error) {
-        state.status = {};
-      }
-    }
-    synthesizeStatus();
-  }
-
-  function synthesizeStatus() {
-    var next = {};
-    state.config.devices.forEach(function (device) {
-      var states = {};
-      var count = Math.max(32, toNumber(device.channel_count, 32));
-      for (var i = 0; i < count; i++) states[i] = i % 5 !== 2;
-      next[device.ip] = { connected: true, relay_states: states };
-    });
-    state.config.lights.forEach(function (light, index) {
-      if (!next[light.device_ip]) next[light.device_ip] = { connected: true, relay_states: {} };
-      if (state.localStates[index] == null) {
-        state.localStates[index] = index % 5 !== 2;
-      }
-      next[light.device_ip].relay_states[light.channel] = !!state.localStates[index];
-    });
-    state.status = next;
+    state.status = getRuntimeStatus();
   }
 
   function isLightConnected(light) {
@@ -457,62 +537,58 @@
   function isLightOn(light, index) {
     var status = state.status[light.device_ip];
     if (status && status.relay_states && Object.prototype.hasOwnProperty.call(status.relay_states, light.channel)) {
-      return !!status.relay_states[light.channel];
+      return !!(status.connected && status.relay_states[light.channel]);
     }
-    if (state.localStates[index] != null) return !!state.localStates[index];
-    return index % 5 !== 2;
+    return false;
   }
 
-  function setLightLocal(index, value) {
-    var light = state.config.lights[index];
-    state.localStates[index] = !!value;
-    if (light) {
-      if (!state.status[light.device_ip]) state.status[light.device_ip] = { connected: true, relay_states: {} };
-      if (!state.status[light.device_ip].relay_states) state.status[light.device_ip].relay_states = {};
-      state.status[light.device_ip].relay_states[light.channel] = !!value;
-    }
-  }
-
-  async function toggleLight(index, forceValue) {
-    var light = state.config.lights[index];
-    if (!light) return;
-    var current = isLightOn(light, index);
-    var next = forceValue == null ? !current : !!forceValue;
-
-    if (state.backend && isLightConnected(light)) {
-      try {
-        var res = await fetch('/api/toggle', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ip: light.device_ip, channel: light.channel, value: next })
-        });
-        var result = await res.json();
-        if (!result.ok) throw new Error(result.error || '控制失败');
-      } catch (error) {
-        showToast('后端控制失败，已切换为本地预览状态。', 2200);
-      }
-    }
-
-    setLightLocal(index, next);
-    updateLightVisual(index);
-    state.selectedLight = index;
-    focusLight(index, false);
-    renderAllPanels();
-    updateHud();
-  }
-
-  function batchLights(value, indexes) {
-    var list = indexes || state.config.lights.map(function (_, index) { return index; });
-    list.forEach(function (index) {
-      setLightLocal(index, value);
-      updateLightVisual(index);
+  function getLightActivity() {
+    var lights = state.config.lights || [];
+    var total = lights.length;
+    var on = 0;
+    lights.forEach(function (light, index) {
+      if (isLightOn(light, index)) on++;
     });
-    renderAllPanels();
-    updateHud();
-    showToast(value ? '已在预览中打开选中灯具' : '已在预览中关闭选中灯具', 1600);
+    return {
+      total: total,
+      on: on,
+      ratio: total ? on / total : 0
+    };
+  }
+
+  function updateSceneLighting() {
+    var activity = getLightActivity();
+    var ratio = clamp(activity.ratio, 0, 1);
+    var hasLight = activity.on > 0 ? 1 : 0;
+    var style = state.activeStyle;
+    var base = style === 'tech'
+      ? { hemi: 1.00, key: 3.20, glow: 0.62, env: 0.92, fog: 0.00062, exposure: 1.42, contrast: 1.03, bloom: 0.36, threshold: 0.58, shadow: 0.27, ssao: 0.74, ssaoBase: 0.08 }
+      : { hemi: 0.84, key: 1.86, glow: 0.46, env: 0.82, fog: 0.00078, exposure: 1.30, contrast: 1.02, bloom: 0.26, threshold: 0.70, shadow: 0.30, ssao: 0.68, ssaoBase: 0.10 };
+    var lift = hasLight * 0.12 + ratio * 0.42;
+
+    scene.environmentIntensity = base.env + lift * 0.48;
+    scene.fogDensity = Math.max(base.fog * (1 - ratio * 0.28 - hasLight * 0.06), base.fog * 0.64);
+    hemi.intensity = base.hemi + lift * 0.56;
+    keyLight.intensity = base.key + lift * 0.92;
+    glow.intensity = base.glow + hasLight * 0.08 + ratio * 0.26;
+    shadow.setDarkness(Math.max(0.16, base.shadow - hasLight * 0.03 - ratio * 0.09));
+
+    if (scene.imageProcessingConfiguration) {
+      scene.imageProcessingConfiguration.exposure = base.exposure + hasLight * 0.08 + ratio * 0.24;
+      scene.imageProcessingConfiguration.contrast = base.contrast;
+    }
+    if (pipeline) {
+      pipeline.bloomWeight = base.bloom + hasLight * 0.04 + ratio * 0.18;
+      pipeline.bloomThreshold = Math.max(0.44, base.threshold - hasLight * 0.03 - ratio * 0.10);
+    }
+    if (ssaoPipeline) {
+      ssaoPipeline.totalStrength = Math.max(0.48, base.ssao - hasLight * 0.06 - ratio * 0.16);
+      ssaoPipeline.base = base.ssaoBase + hasLight * 0.02 + ratio * 0.05;
+    }
   }
 
   function rebuildScene() {
+    syncRuntimeState();
     if (state.sceneRoot) {
       state.sceneRoot.dispose(false, true);
       state.sceneRoot = null;
@@ -588,13 +664,13 @@
     var sideDoorH = wallH * 0.72;
     var sideWallSegment = Math.max(20, (b.depth - sideDoorW) / 2);
     box('back-wall', new BABYLON.Vector3(b.width, wallH, 5), new BABYLON.Vector3(0, wallH / 2, b.halfD), state.materials.wall, root, true, true);
-    box('left-wall-front', new BABYLON.Vector3(5, wallH, sideWallSegment), new BABYLON.Vector3(-b.halfW, wallH / 2, -sideDoorW / 2 - sideWallSegment / 2), state.materials.wall, root, true, true);
-    box('left-wall-back', new BABYLON.Vector3(5, wallH, sideWallSegment), new BABYLON.Vector3(-b.halfW, wallH / 2, sideDoorW / 2 + sideWallSegment / 2), state.materials.wall, root, true, true);
-    box('left-door-header', new BABYLON.Vector3(5, wallH - sideDoorH, sideDoorW), new BABYLON.Vector3(-b.halfW, sideDoorH + (wallH - sideDoorH) / 2, 0), state.materials.wall, root, true, true);
-    box('right-wall', new BABYLON.Vector3(5, wallH, b.depth), new BABYLON.Vector3(b.halfW, wallH / 2, 0), state.materials.wall, root, true, true);
+    box('left-wall', new BABYLON.Vector3(5, wallH, b.depth), new BABYLON.Vector3(-b.halfW, wallH / 2, 0), state.materials.wall, root, true, true);
+    box('right-wall-front', new BABYLON.Vector3(5, wallH, sideWallSegment), new BABYLON.Vector3(b.halfW, wallH / 2, -sideDoorW / 2 - sideWallSegment / 2), state.materials.wall, root, true, true);
+    box('right-wall-back', new BABYLON.Vector3(5, wallH, sideWallSegment), new BABYLON.Vector3(b.halfW, wallH / 2, sideDoorW / 2 + sideWallSegment / 2), state.materials.wall, root, true, true);
+    box('right-door-header', new BABYLON.Vector3(5, wallH - sideDoorH, sideDoorW), new BABYLON.Vector3(b.halfW, sideDoorH + (wallH - sideDoorH) / 2, 0), state.materials.wall, root, true, true);
     box('front-wall', new BABYLON.Vector3(b.width, wallH, 5), new BABYLON.Vector3(0, wallH / 2, -b.halfD), state.materials.wall, root, true, true);
 
-    createLeftMiddleGate(root, b, sideDoorW, sideDoorH);
+    createRightMiddleGate(root, b, sideDoorW, sideDoorH);
 
     createRoof(root, b);
     createFrame(root, b);
@@ -624,16 +700,16 @@
     });
   }
 
-  function createLeftMiddleGate(root, b, width, height) {
-    var x = -b.halfW - 3.4;
+  function createRightMiddleGate(root, b, width, height) {
+    var x = b.halfW + 3.4;
     var panelDepth = width * 0.46;
     box('main-gate-left-panel', new BABYLON.Vector3(3.2, height, panelDepth), new BABYLON.Vector3(x, height / 2, -width * 0.24), state.materials.door, root, true, true);
     box('main-gate-right-panel', new BABYLON.Vector3(3.2, height, panelDepth), new BABYLON.Vector3(x, height / 2, width * 0.24), state.materials.door, root, true, true);
-    box('main-gate-center-line', new BABYLON.Vector3(3.6, height * 0.92, 1.2), new BABYLON.Vector3(x - 0.1, height * 0.46, 0), state.materials.steel, root, true, true);
+    box('main-gate-center-line', new BABYLON.Vector3(3.6, height * 0.92, 1.2), new BABYLON.Vector3(x + 0.1, height * 0.46, 0), state.materials.steel, root, true, true);
     box('main-gate-top-track', new BABYLON.Vector3(6.4, 3.0, width * 1.08), new BABYLON.Vector3(x, height + 1.5, 0), state.materials.steel, root, true, true);
     box('main-gate-floor-track', new BABYLON.Vector3(6.0, 1.0, width * 1.1), new BABYLON.Vector3(x, 0.7, 0), state.materials.steel, root, true, true);
-    box('main-gate-apron', new BABYLON.Vector3(86, 0.9, width * 1.08), new BABYLON.Vector3(-b.halfW - 46, 0.8, 0), state.materials.path, root, false, true).checkCollisions = false;
-    createGateSign(root, new BABYLON.Vector3(-b.halfW - 22, height + 30, 0));
+    box('main-gate-apron', new BABYLON.Vector3(86, 0.9, width * 1.08), new BABYLON.Vector3(b.halfW + 46, 0.8, 0), state.materials.path, root, false, true).checkCollisions = false;
+    createGateSign(root, new BABYLON.Vector3(b.halfW + 22, height + 30, 0));
   }
 
   function createGateSign(parent, position) {
@@ -797,6 +873,7 @@
       state.lightEntries[index] = entry;
       updateLightVisual(index);
     });
+    updateSceneLighting();
   }
 
   function createLightNode(light, index, b, parent) {
@@ -809,45 +886,142 @@
     var y = light.mount === 'floor' ? 16 : Math.max(b.wallH + 6, b.ridgeH - 8);
     var meshes = [];
 
-    meshes.push(cylinder('lamp-wire-' + index, { height: Math.max(10, y - b.wallH), diameter: 1.8, tessellation: 10 }, new BABYLON.Vector3(0, y + Math.max(10, y - b.wallH) / 2, 0), state.materials.steel, root, true, false));
     var panelW = size * 2.35;
     var panelH = Math.max(3.6, size * 0.34);
     var panelD = size * 1.05;
-    var shade = box(
-      'lamp-housing-' + index,
-      new BABYLON.Vector3(panelW * 1.12, panelH * 1.55, panelD * 1.18),
-      new BABYLON.Vector3(0, y, 0),
-      state.materials.dark,
+
+    var supportHeight = Math.max(10, y - b.wallH);
+    var supportOffset = Math.max(4.6, panelW * 0.31);
+    if (light.mount === 'floor') {
+      meshes.push(cylinder('lamp-floor-base-' + index, { height: 1.0, diameter: Math.max(10, panelD * 0.82), tessellation: 28 }, new BABYLON.Vector3(0, 0.5, 0), state.materials.lampEndCap, root, true, false));
+      meshes.push(cylinder('lamp-floor-post-' + index, { height: Math.max(8, y - panelH), diameter: 1.7, tessellation: 12 }, new BABYLON.Vector3(0, Math.max(8, y - panelH) / 2 + 1, panelD * 0.42), state.materials.lampCable, root, true, false));
+    } else {
+      [-supportOffset, supportOffset].forEach(function (offset, cableIndex) {
+        meshes.push(cylinder(
+          'lamp-suspension-cable-' + index + '-' + cableIndex,
+          { height: supportHeight, diameter: Math.max(0.52, panelH * 0.12), tessellation: 10 },
+          new BABYLON.Vector3(offset, y + panelH * 0.58 + supportHeight / 2, 0),
+          state.materials.lampCable,
+          root,
+          true,
+          false
+        ));
+        meshes.push(box(
+          'lamp-ceiling-anchor-' + index + '-' + cableIndex,
+          new BABYLON.Vector3(Math.max(3.6, panelH * 0.76), Math.max(0.7, panelH * 0.18), panelD * 0.34),
+          new BABYLON.Vector3(offset, y + panelH * 0.58 + supportHeight + panelH * 0.1, 0),
+          state.materials.lampTrim,
+          root,
+          true,
+          false
+        ));
+      });
+    }
+
+    meshes.push(box(
+      'lamp-body-' + index,
+      new BABYLON.Vector3(panelW * 1.16, panelH * 0.82, panelD * 1.12),
+      new BABYLON.Vector3(0, y + panelH * 0.12, 0),
+      state.materials.lampBody,
       root,
       true,
       true
-    );
-    meshes.push(shade);
+    ));
+    meshes.push(box(
+      'lamp-top-spine-' + index,
+      new BABYLON.Vector3(panelW * 0.96, panelH * 0.22, panelD * 0.28),
+      new BABYLON.Vector3(0, y + panelH * 0.64, 0),
+      state.materials.lampTrim,
+      root,
+      true,
+      false
+    ));
+    meshes.push(box(
+      'lamp-endcap-left-' + index,
+      new BABYLON.Vector3(panelH * 0.56, panelH * 0.98, panelD * 1.18),
+      new BABYLON.Vector3(-panelW * 0.58, y + panelH * 0.04, 0),
+      state.materials.lampEndCap,
+      root,
+      true,
+      false
+    ));
+    meshes.push(box(
+      'lamp-endcap-right-' + index,
+      new BABYLON.Vector3(panelH * 0.56, panelH * 0.98, panelD * 1.18),
+      new BABYLON.Vector3(panelW * 0.58, y + panelH * 0.04, 0),
+      state.materials.lampEndCap,
+      root,
+      true,
+      false
+    ));
 
-    var bulbMat = standard('lamp-bulb-' + index, { color: palette[state.activeStyle].glow, emissive: palette[state.activeStyle].glow, alpha: 0.95 });
+    var bulbMat = standard('lamp-diffuser-' + index, { color: palette[state.activeStyle].glow, emissive: palette[state.activeStyle].glow, alpha: 0.78 });
+    bulbMat.specularColor = color3('#d9ffff');
+    var coreMat = standard('lamp-core-' + index, { color: palette[state.activeStyle].glow, emissive: palette[state.activeStyle].glow, alpha: 1 });
+    coreMat.disableLighting = true;
+    coreMat.disableDepthWrite = true;
+    coreMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
     var haloMat = standard('lamp-halo-' + index, { color: palette[state.activeStyle].glow, emissive: palette[state.activeStyle].glow, alpha: 0.18 });
+    haloMat.disableLighting = true;
+    haloMat.disableDepthWrite = true;
+    haloMat.alphaMode = BABYLON.Engine.ALPHA_ADD;
+    var indicatorMat = standard('lamp-indicator-' + index, { color: '#53ffae', emissive: '#53ffae', alpha: 0.95 });
     var pool = createLightPool(index, panelW, panelD, size, root);
     var bulb = BABYLON.MeshBuilder.CreateBox('lamp-bulb-mesh-' + index, {
-      width: panelW,
-      height: panelH,
-      depth: panelD
+      width: panelW * 0.88,
+      height: panelH * 0.34,
+      depth: panelD * 0.72
     }, scene);
-    bulb.position = new BABYLON.Vector3(0, y - panelH * 0.52, 0);
+    bulb.position = new BABYLON.Vector3(0, y - panelH * 0.34, 0);
     bulb.material = bulbMat;
     bulb.parent = root;
+    bulb.metadata = { skipLampHighlight: true };
     meshes.push(addShadow(bulb, false, false));
 
+    var core = BABYLON.MeshBuilder.CreateBox('lamp-core-mesh-' + index, {
+      width: panelW * 0.74,
+      height: Math.max(0.5, panelH * 0.11),
+      depth: panelD * 0.24
+    }, scene);
+    core.position = new BABYLON.Vector3(0, y - panelH * 0.57, 0);
+    core.material = coreMat;
+    core.parent = root;
+    core.isPickable = false;
+
+    [-1, 1].forEach(function (side) {
+      var strip = BABYLON.MeshBuilder.CreateBox('lamp-side-glow-' + index + '-' + side, {
+        width: panelW * 0.76,
+        height: Math.max(0.42, panelH * 0.08),
+        depth: Math.max(0.42, panelH * 0.08)
+      }, scene);
+      strip.position = new BABYLON.Vector3(0, y - panelH * 0.53, side * panelD * 0.38);
+      strip.material = coreMat;
+      strip.parent = root;
+      strip.isPickable = false;
+    });
+
     createLampFrame(root, index, panelW, panelH, panelD, bulb.position.y, meshes);
+
+    var indicator = BABYLON.MeshBuilder.CreateSphere('lamp-indicator-mesh-' + index, {
+      diameter: Math.max(1.25, panelH * 0.28),
+      segments: 12
+    }, scene);
+    indicator.position = new BABYLON.Vector3(panelW * 0.43, y + panelH * 0.13, -panelD * 0.61);
+    indicator.material = indicatorMat;
+    indicator.parent = root;
+    indicator.metadata = { skipLampHighlight: true };
+    meshes.push(addShadow(indicator, false, false));
 
     var halo = BABYLON.MeshBuilder.CreateBox('lamp-halo-mesh-' + index, {
       width: panelW * 1.75,
       height: panelH * 1.4,
       depth: panelD * 1.9
     }, scene);
-    halo.position = bulb.position.clone();
+    halo.position = new BABYLON.Vector3(0, y - panelH * 0.48, 0);
     halo.material = haloMat;
     halo.parent = root;
     halo.isPickable = false;
+    halo.checkCollisions = false;
 
     var point = null;
     if (index < MAX_DYNAMIC_LIGHTS) {
@@ -862,6 +1036,7 @@
       mesh.metadata = mesh.metadata || {};
       mesh.metadata.lightIndex = index;
       mesh.isPickable = true;
+      mesh.checkCollisions = false;
     });
 
     var label = createLabel(index);
@@ -873,11 +1048,15 @@
       root: root,
       meshes: meshes,
       bulb: bulb,
+      core: core,
+      indicator: indicator,
       halo: halo,
       pool: pool.mesh,
       label: label,
       point: point,
       bulbMat: bulbMat,
+      coreMat: coreMat,
+      indicatorMat: indicatorMat,
       haloMat: haloMat,
       poolMat: pool.material,
       poolTex: pool.texture
@@ -958,18 +1137,37 @@
   }
 
   function createLampFrame(root, index, panelW, panelH, panelD, y, meshes) {
-    var rail = Math.max(1.1, panelH * 0.28);
-    var z = panelD / 2 + rail * 0.42;
-    var x = panelW / 2 + rail * 0.42;
+    var rail = Math.max(0.72, panelH * 0.16);
+    var z = panelD * 0.43 + rail * 0.42;
+    var x = panelW * 0.46 + rail * 0.42;
     [
-      { name: 'front', size: new BABYLON.Vector3(panelW + rail * 1.8, rail, rail), pos: new BABYLON.Vector3(0, y + panelH * 0.08, -z) },
-      { name: 'back', size: new BABYLON.Vector3(panelW + rail * 1.8, rail, rail), pos: new BABYLON.Vector3(0, y + panelH * 0.08, z) },
-      { name: 'left', size: new BABYLON.Vector3(rail, rail, panelD + rail * 1.8), pos: new BABYLON.Vector3(-x, y + panelH * 0.08, 0) },
-      { name: 'right', size: new BABYLON.Vector3(rail, rail, panelD + rail * 1.8), pos: new BABYLON.Vector3(x, y + panelH * 0.08, 0) }
+      { name: 'front', size: new BABYLON.Vector3(panelW * 0.98, rail, rail), pos: new BABYLON.Vector3(0, y + panelH * 0.02, -z), mat: state.materials.lampFrame },
+      { name: 'back', size: new BABYLON.Vector3(panelW * 0.98, rail, rail), pos: new BABYLON.Vector3(0, y + panelH * 0.02, z), mat: state.materials.lampFrame },
+      { name: 'left', size: new BABYLON.Vector3(rail, rail, panelD * 0.9), pos: new BABYLON.Vector3(-x, y + panelH * 0.02, 0), mat: state.materials.lampEndCap },
+      { name: 'right', size: new BABYLON.Vector3(rail, rail, panelD * 0.9), pos: new BABYLON.Vector3(x, y + panelH * 0.02, 0), mat: state.materials.lampEndCap },
+      { name: 'center-rib', size: new BABYLON.Vector3(panelW * 0.68, rail * 0.55, rail * 0.55), pos: new BABYLON.Vector3(0, y - panelH * 0.12, 0), mat: state.materials.lampTrim }
     ].forEach(function (part) {
-      var mesh = box('lamp-frame-' + part.name + '-' + index, part.size, part.pos, state.materials.lampFrame, root, true, false);
+      var mesh = box('lamp-frame-' + part.name + '-' + index, part.size, part.pos, part.mat, root, true, false);
       mesh.checkCollisions = false;
       meshes.push(mesh);
+    });
+    [
+      [-1, -1],
+      [-1, 1],
+      [1, -1],
+      [1, 1]
+    ].forEach(function (corner, boltIndex) {
+      var bolt = cylinder(
+        'lamp-frame-bolt-' + index + '-' + boltIndex,
+        { height: Math.max(0.18, rail * 0.24), diameter: rail * 1.08, tessellation: 12 },
+        new BABYLON.Vector3(corner[0] * panelW * 0.38, y - panelH * 0.18, corner[1] * panelD * 0.31),
+        state.materials.lampTrim,
+        root,
+        true,
+        false
+      );
+      bolt.checkCollisions = false;
+      meshes.push(bolt);
     });
   }
 
@@ -991,13 +1189,14 @@
     return plane;
   }
 
-  function drawLabel(entry, index, on) {
+  function drawLabel(entry, index, on, pending) {
     var tex = entry.label.metadata.labelTexture;
     var ctx = tex.getContext();
     var light = entry.light;
-    var color = on ? palette[state.activeStyle].glow : 'rgba(255,255,255,0.18)';
+    pending = !!pending;
+    var color = pending ? '#ffd36a' : (on ? palette[state.activeStyle].glow : 'rgba(255,255,255,0.18)');
     ctx.clearRect(0, 0, 420, 142);
-    ctx.fillStyle = on ? 'rgba(12,22,20,0.82)' : 'rgba(16,18,20,0.70)';
+    ctx.fillStyle = pending ? 'rgba(58,43,14,0.84)' : (on ? 'rgba(12,22,20,0.82)' : 'rgba(16,18,20,0.70)');
     roundRect(ctx, 12, 12, 396, 118, 18);
     ctx.fill();
     ctx.lineWidth = 3;
@@ -1006,9 +1205,9 @@
     ctx.fillStyle = '#ffffff';
     ctx.font = '700 33px Microsoft YaHei, sans-serif';
     ctx.fillText(light.name, 28, 60);
-    ctx.fillStyle = on ? palette[state.activeStyle].glow : '#9aa2aa';
+    ctx.fillStyle = pending ? '#ffd36a' : (on ? palette[state.activeStyle].glow : '#9aa2aa');
     ctx.font = '700 23px Microsoft YaHei, sans-serif';
-    ctx.fillText(light.group + ' / ' + (on ? 'ON' : 'OFF'), 28, 101);
+    ctx.fillText(light.group + ' / ' + (pending ? '\u786e\u8ba4\u4e2d' : (on ? 'ON' : 'OFF')), 28, 101);
     tex.update();
   }
 
@@ -1027,41 +1226,69 @@
   }
 
   function updateLightVisual(index) {
+    state.status = getRuntimeStatus();
     var entry = state.lightEntries[index];
     var light = state.config.lights[index];
     if (!entry || !light) return;
     var on = isLightOn(light, index);
+    var relayStatus = state.status[light.device_ip];
+    var connected = !!(relayStatus && relayStatus.connected);
+    var pending = connected && typeof isChannelPending === 'function' && isChannelPending(light.device_ip, light.channel);
     var base = on ? (light.group.indexOf('工位') >= 0 ? palette[state.activeStyle].warm : palette[state.activeStyle].glow) : '#3b4248';
-    entry.bulbMat.emissiveColor = color3(on ? base : '#0f1114');
-    entry.bulbMat.diffuseColor = color3(base);
-    entry.bulbMat.alpha = on ? 0.98 : 0.45;
+    if (pending) base = '#ffd36a';
+    entry.bulbMat.emissiveColor = color3(pending ? '#8a5b12' : (on ? base : '#101418'));
+    entry.bulbMat.diffuseColor = color3(pending ? '#ffd36a' : (on ? base : (state.activeStyle === 'tech' ? '#54616b' : '#bac5c8')));
+    entry.bulbMat.alpha = pending ? 0.74 : (on ? 0.88 : 0.58);
+    if (entry.coreMat) {
+      entry.coreMat.emissiveColor = color3(pending ? '#a66d19' : (on ? base : '#050607'));
+      entry.coreMat.diffuseColor = color3(pending ? '#ffd36a' : (on ? base : '#30373d'));
+      entry.coreMat.alpha = pending ? 0.55 : (on ? 1 : 0.16);
+    }
+    if (entry.indicatorMat) {
+      entry.indicatorMat.emissiveColor = color3(pending ? '#ffd36a' : (on ? '#53ffae' : '#090b0d'));
+      entry.indicatorMat.diffuseColor = color3(pending ? '#ffd36a' : (on ? '#53ffae' : '#4a535a'));
+      entry.indicatorMat.alpha = pending ? 0.9 : (on ? 0.96 : 0.56);
+    }
     entry.haloMat.emissiveColor = color3(base);
     entry.haloMat.diffuseColor = color3(base);
-    entry.haloMat.alpha = on ? 0.18 : 0.0;
-    paintLightPool(entry.poolTex, base, on, light.scale * 4.5);
-    entry.poolMat.alpha = on ? 1 : 0;
-    entry.pool.isVisible = !!on;
+    entry.haloMat.alpha = pending ? 0.12 : (on ? 0.20 : 0.0);
+    paintLightPool(entry.poolTex, base, pending || on, light.scale * (pending ? 3.7 : 4.5));
+    entry.poolMat.alpha = pending ? 0.55 : (on ? 1 : 0);
+    entry.pool.isVisible = !!(pending || on);
     if (entry.point) {
       entry.point.diffuse = color3(base);
       entry.point.specular = color3(base);
-      entry.point.intensity = on ? 0.52 : 0;
+      entry.point.intensity = pending ? 0.18 : (on ? 0.52 : 0);
     }
-    drawLabel(entry, index, on);
+    updateSceneLighting();
+    drawLabel(entry, index, on, pending);
   }
 
   function focusLight(index, moveCamera) {
+    if (index == null) {
+      state.selectedLight = null;
+      highlight.removeAllMeshes();
+      var popEl = document.getElementById('device-pop');
+      if (popEl) popEl.hidden = true;
+      return;
+    }
     state.selectedLight = index;
     highlight.removeAllMeshes();
     var entry = state.lightEntries[index];
-    if (!entry) return;
+    if (!entry) {
+      var emptyPop = document.getElementById('device-pop');
+      if (emptyPop) emptyPop.hidden = true;
+      return;
+    }
     entry.meshes.forEach(function (mesh) {
-      highlight.addMesh(mesh, color3('#ffd68a'));
+      if (!mesh.metadata || !mesh.metadata.skipLampHighlight) {
+        highlight.addMesh(mesh, color3('#ffd68a'));
+      }
     });
     if (moveCamera !== false) {
       orbitCamera.setTarget(entry.root.position.add(new BABYLON.Vector3(0, 25, 0)));
     }
     renderDevicePop(index);
-    renderAllPanels();
   }
 
   function renderDevicePop(index) {
@@ -1088,7 +1315,9 @@
         '<button class="btn btn-primary" data-pop="toggle" type="button">切换</button>' +
         '<button class="btn btn-ghost" data-pop="close" type="button">关闭</button>' +
       '</div>';
-    pop.querySelector('[data-pop="toggle"]').onclick = function () { toggleLight(index); };
+    pop.querySelector('[data-pop="toggle"]').onclick = function () {
+      if (typeof toggleDeviceChannel === 'function') toggleDeviceChannel(light.device_ip, light.channel);
+    };
     pop.querySelector('[data-pop="close"]').onclick = function () { pop.hidden = true; };
     pop.hidden = false;
   }
@@ -1107,193 +1336,22 @@
     var pick = pointerInfo.pickInfo;
     if (!pick || !pick.hit || !pick.pickedMesh) return;
     var index = findPickedLight(pick.pickedMesh);
-    if (index != null) toggleLight(index);
+    if (index == null) return;
+    var light = state.config.lights[index];
+    if (typeof topView !== 'undefined' && topView === 'control' && light && typeof toggleDeviceChannel === 'function') {
+      toggleDeviceChannel(light.device_ip, light.channel);
+    } else if (typeof focusLamp === 'function') {
+      focusLamp(index);
+    } else {
+      focusLight(index);
+    }
   });
 
-  function renderAllPanels() {
-    renderDevices();
-    renderLights();
-    renderControlView();
-    renderLayoutList();
-    renderStats();
-    updateCounts();
-  }
-
-  function renderDevices() {
-    var el = document.getElementById('dev-list');
-    var devices = state.config.devices;
-    el.innerHTML = '';
-    if (!devices.length) {
-      el.innerHTML = '<div class="empty-tip">暂无设备</div>';
-      return;
-    }
-    devices.forEach(function (device, index) {
-      var connected = !!(state.status[device.ip] && state.status[device.ip].connected);
-      var row = document.createElement('div');
-      row.className = 'babylon-row' + (connected ? ' is-on' : '');
-      row.innerHTML =
-        '<div class="row-dot"></div>' +
-        '<div class="row-main">' +
-          '<div class="row-title">' + escapeHtml(cleanName(device.name, '控制设备 ' + pad(index + 1))) + '</div>' +
-          '<div class="row-meta">' + escapeHtml(device.ip || '--') + ':' + escapeHtml(device.port || '--') + ' · ' + escapeHtml(device.protocol || 'modbus_tcp') + '</div>' +
-        '</div>' +
-        '<div class="row-state">' + (connected ? '在线' : '离线') + '</div>';
-      el.appendChild(row);
-    });
-  }
-
-  function renderLights() {
-    var el = document.getElementById('light-rows');
-    el.innerHTML = '';
-    state.config.lights.forEach(function (light, index) {
-      var on = isLightOn(light, index);
-      var row = document.createElement('div');
-      row.className = 'babylon-row' + (on ? ' is-on' : '') + (state.selectedLight === index ? ' is-selected' : '');
-      row.innerHTML =
-        '<div class="row-dot"></div>' +
-        '<div class="row-main">' +
-          '<div class="row-title">' + escapeHtml(light.name) + '</div>' +
-          '<div class="row-meta">' + escapeHtml(light.group) + ' · ' + escapeHtml(light.device_ip) + ' / CH ' + light.channel + '</div>' +
-        '</div>' +
-        '<div class="row-state">' + (on ? '开' : '关') + '</div>';
-      row.onclick = function () { focusLight(index); };
-      el.appendChild(row);
-    });
-  }
-
-  function groupLights() {
-    var groups = {};
-    state.config.lights.forEach(function (light, index) {
-      var key = light.group || '默认分组';
-      if (!groups[key]) groups[key] = [];
-      groups[key].push({ light: light, index: index });
-    });
-    return groups;
-  }
-
-  function renderControlView() {
-    var actions = document.getElementById('cv-main-actions');
-    actions.innerHTML =
-      '<button class="babylon-action" data-action="all-on" type="button"><strong>全部开启</strong><span>本页预览会同步场景发光</span></button>' +
-      '<button class="babylon-action" data-action="all-off" type="button"><strong>全部关闭</strong><span>保留布局和设备状态</span></button>' +
-      '<button class="babylon-action" data-action="refresh" type="button"><strong>刷新状态</strong><span>' + escapeHtml(state.sourceLabel) + '</span></button>' +
-      '<button class="babylon-action" data-action="fit" type="button"><strong>适配视角</strong><span>回到厂房总览</span></button>';
-    actions.querySelector('[data-action="all-on"]').onclick = function () { batchLights(true); };
-    actions.querySelector('[data-action="all-off"]').onclick = function () { batchLights(false); };
-    actions.querySelector('[data-action="refresh"]').onclick = function () { loadStatus().then(function () { state.config.lights.forEach(function (_, i) { updateLightVisual(i); }); renderAllPanels(); updateHud(); }); };
-    actions.querySelector('[data-action="fit"]').onclick = fitCamera;
-
-    var body = document.getElementById('cv-body');
-    body.innerHTML = '';
-    if (state.controlMode === 'list') {
-      state.config.lights.forEach(function (light, index) {
-        body.appendChild(createControlLight(light, index));
-      });
-      return;
-    }
-
-    var groups = groupLights();
-    Object.keys(groups).forEach(function (groupName) {
-      var items = groups[groupName];
-      var onCount = items.filter(function (item) { return isLightOn(item.light, item.index); }).length;
-      var card = document.createElement('div');
-      card.className = 'control-group-card';
-      card.innerHTML =
-        '<div class="control-group-head">' +
-          '<div><div class="control-group-name">' + escapeHtml(groupName) + '</div>' +
-          '<div class="control-group-meta">' + onCount + ' / ' + items.length + ' 已开启</div></div>' +
-          '<div class="control-group-actions">' +
-            '<button class="mini-action" data-group="on" type="button">开</button>' +
-            '<button class="mini-action" data-group="off" type="button">关</button>' +
-          '</div>' +
-        '</div>' +
-        '<div class="control-light-grid"></div>';
-      var grid = card.querySelector('.control-light-grid');
-      items.forEach(function (item) { grid.appendChild(createControlLight(item.light, item.index)); });
-      card.querySelector('[data-group="on"]').onclick = function () { batchLights(true, items.map(function (item) { return item.index; })); };
-      card.querySelector('[data-group="off"]').onclick = function () { batchLights(false, items.map(function (item) { return item.index; })); };
-      body.appendChild(card);
-    });
-  }
-
-  function createControlLight(light, index) {
-    var on = isLightOn(light, index);
-    var btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'control-light' + (on ? ' is-on' : '') + (state.selectedLight === index ? ' is-selected' : '');
-    btn.innerHTML =
-      '<div class="control-light-name">' + escapeHtml(light.name) + '</div>' +
-      '<div class="control-light-meta">' + escapeHtml(light.group) + ' · CH ' + light.channel + ' · ' + (on ? 'ON' : 'OFF') + '</div>';
-    btn.onclick = function () { toggleLight(index); };
-    return btn;
-  }
-
-  function renderLayoutList() {
-    var el = document.getElementById('layout-list');
-    el.innerHTML = '';
-    if (!state.layoutEntries.length) {
-      el.innerHTML = '<div class="empty-tip">当前工程暂无额外布局对象</div>';
-      return;
-    }
-    state.layoutEntries.forEach(function (item) {
-      var row = document.createElement('div');
-      row.className = 'babylon-row';
-      row.innerHTML =
-        '<div class="row-dot"></div>' +
-        '<div class="row-main">' +
-          '<div class="row-title">' + escapeHtml(item.name) + '</div>' +
-          '<div class="row-meta">' + escapeHtml(item.kind) + ' · ' + escapeHtml(item.meta) + '</div>' +
-        '</div>';
-      row.onclick = function () {
-        orbitCamera.setTarget(item.focus);
-        orbitCamera.radius = Math.max(180, orbitCamera.radius * 0.72);
-      };
-      el.appendChild(row);
-    });
-  }
-
-  function renderStats() {
-    var cards = document.getElementById('stats-cards');
-    var total = state.config.lights.length;
-    var on = state.config.lights.filter(isLightOn).length;
-    var layoutCount = state.layoutEntries.length;
-    cards.innerHTML =
-      '<div class="stats-card-lite"><strong>' + state.config.devices.length + '</strong><span>控制设备</span></div>' +
-      '<div class="stats-card-lite"><strong>' + total + '</strong><span>灯具总数</span></div>' +
-      '<div class="stats-card-lite"><strong>' + on + '</strong><span>当前开启</span></div>' +
-      '<div class="stats-card-lite"><strong>' + layoutCount + '</strong><span>布局对象</span></div>';
-
-    var groups = groupLights();
-    var groupEl = document.getElementById('stats-groups');
-    groupEl.innerHTML = Object.keys(groups).map(function (groupName) {
-      var items = groups[groupName];
-      var count = items.filter(function (item) { return isLightOn(item.light, item.index); }).length;
-      return '<div class="babylon-row"><div class="row-main"><div class="row-title">' + escapeHtml(groupName) + '</div><div class="row-meta">' + count + ' / ' + items.length + ' 开启</div></div></div>';
-    }).join('');
-
-    var layoutEl = document.getElementById('stats-layout');
-    layoutEl.innerHTML = state.layoutEntries.map(function (item) {
-      return '<div class="babylon-row"><div class="row-main"><div class="row-title">' + escapeHtml(item.name) + '</div><div class="row-meta">' + escapeHtml(item.kind) + ' · ' + escapeHtml(item.meta) + '</div></div></div>';
-    }).join('') || '<div class="empty-tip">暂无布局对象</div>';
-  }
-
-  function updateCounts() {
-    var total = state.config.lights.length;
-    var on = state.config.lights.filter(isLightOn).length;
-    document.getElementById('stat-on').textContent = on;
-    document.getElementById('stat-off').textContent = total - on;
-    document.getElementById('mini-devices').textContent = state.config.devices.length;
-    document.getElementById('mini-appliances').textContent = total;
-    document.getElementById('mini-layout').textContent = state.layoutEntries.length;
-    document.getElementById('meta-devices').textContent = state.config.devices.length + ' 台控制设备';
-    document.getElementById('meta-appliances').textContent = total + ' 个灯具';
-    document.getElementById('meta-layout').textContent = state.layoutEntries.length + ' 个布局对象';
-    document.getElementById('runtime-summary').textContent = state.sourceLabel + ' · ' + total + ' 个灯具 · ' + state.layoutEntries.length + ' 个布局对象';
-  }
-
   function updateHud() {
-    document.getElementById('hud-source').textContent = state.sourceLabel + ' · ' + state.config.lights.length + ' 个灯具';
-    document.getElementById('hud-style').textContent = '科技夜景';
+    var source = document.getElementById('hud-source');
+    var style = document.getElementById('hud-style');
+    if (source) source.textContent = '后端实时配置';
+    if (style) style.textContent = '科技夜景';
   }
 
   function fmtTemp(value) {
@@ -1404,9 +1462,9 @@
     var spanX = bounds ? Math.max(180, bounds.maxX - bounds.minX) : b.width;
     var spanZ = bounds ? Math.max(180, bounds.maxZ - bounds.minZ) : b.depth;
     orbitCamera.setTarget(new BABYLON.Vector3(centerX, 32, centerZ));
-    orbitCamera.alpha = -Math.PI / 2.18;
-    orbitCamera.beta = 0.82;
-    orbitCamera.radius = Math.max(spanX, spanZ, b.depth * 0.72) * 0.92;
+    orbitCamera.alpha = DEFAULT_VIEW_ALPHA;
+    orbitCamera.beta = DEFAULT_VIEW_BETA;
+    orbitCamera.radius = Math.max(spanX, spanZ, b.depth * 0.72) * DEFAULT_VIEW_RADIUS_SCALE;
   }
 
   function getContentBounds() {
@@ -1454,84 +1512,40 @@
     }
     rebuildScene();
     state.config.lights.forEach(function (_, i) { updateLightVisual(i); });
-    renderAllPanels();
+    updateSceneLighting();
     updateHud();
   }
 
-  function toggleWalkMode() {
-    state.walkMode = !state.walkMode;
-    var btn = document.getElementById('walk-toggle');
+  function toggleWalkMode(forceValue) {
+    state.walkMode = typeof forceValue === 'boolean' ? forceValue : !state.walkMode;
+    clearOrbitPanKeys();
+    if (typeof walkMode !== 'undefined') walkMode = state.walkMode;
+    var btn = document.getElementById('hud-walk') || document.getElementById('walk-toggle');
     var label = document.getElementById('walk-label');
     if (state.walkMode) {
       orbitCamera.detachControl(canvas);
       scene.activeCamera = walkCamera;
       walkCamera.attachControl(canvas, true);
-      btn.classList.add('active');
-      label.textContent = '第一人称: 开';
+      if (btn) btn.classList.add('active');
+      if (label) label.textContent = '第一人称: 开';
       canvas.focus();
     } else {
       walkCamera.detachControl(canvas);
       scene.activeCamera = orbitCamera;
       orbitCamera.attachControl(canvas, true);
-      btn.classList.remove('active');
-      label.textContent = '第一人称: 关';
+      if (btn) btn.classList.remove('active');
+      if (label) label.textContent = '第一人称: 关';
     }
-  }
-
-  function switchTopView(view) {
-    document.body.classList.remove('view-modeling', 'view-control', 'view-stats');
-    document.body.classList.add('view-' + view);
-    document.querySelectorAll('.top-tab').forEach(function (btn) {
-      btn.classList.toggle('active', btn.dataset.view === view);
-    });
-    setTimeout(function () { engine.resize(); }, 60);
-  }
-
-  function togglePanel(forceOpen) {
-    var panel = document.getElementById('panel');
-    var collapsed = forceOpen === true ? false : !panel.classList.contains('panel-collapsed');
-    panel.classList.toggle('panel-collapsed', collapsed);
-    document.getElementById('panel-toggle').setAttribute('aria-expanded', String(!collapsed));
-    document.getElementById('panel-toggle-glyph').textContent = collapsed ? '<' : '>';
-  }
-
-  function showToast(message, ms) {
-    var el = document.getElementById('scene-toast');
-    el.textContent = message;
-    el.hidden = false;
-    clearTimeout(showToast._timer);
-    showToast._timer = setTimeout(function () { el.hidden = true; }, ms || 1800);
+    var reticle = document.getElementById('walk-reticle');
+    if (reticle) reticle.classList.toggle('show', state.walkMode);
   }
 
   function bindUI() {
-    document.querySelectorAll('.top-tab').forEach(function (btn) {
-      btn.addEventListener('click', function () { switchTopView(btn.dataset.view); });
-    });
-    document.querySelectorAll('.cv-mode').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        state.controlMode = btn.dataset.mode;
-        document.querySelectorAll('.cv-mode').forEach(function (item) { item.classList.toggle('active', item === btn); });
-        renderControlView();
-      });
-    });
-    document.getElementById('walk-toggle').onclick = toggleWalkMode;
-    document.getElementById('reload-config').onclick = loadConfig;
-    document.getElementById('fit-camera').onclick = fitCamera;
-    document.getElementById('stats-refresh').onclick = function () { loadStatus().then(renderAllPanels); };
-    document.getElementById('all-on').onclick = function () { batchLights(true); };
-    document.getElementById('all-off').onclick = function () { batchLights(false); };
-    document.getElementById('panel-toggle').onclick = function () { togglePanel(); };
-    document.getElementById('panel-visibility-btn').onclick = function () { togglePanel(); };
-    document.getElementById('panel-mini-open-btn').onclick = function () { togglePanel(true); };
-    document.querySelectorAll('[data-section-toggle]').forEach(function (btn) {
-      btn.onclick = function () {
-        var key = btn.dataset.sectionToggle;
-        var section = document.getElementById('section-' + key);
-        section.classList.toggle('open');
-        var body = document.getElementById('body-' + key);
-        body.setAttribute('aria-hidden', String(!section.classList.contains('open')));
-      };
-    });
+    var walkToggle = document.getElementById('hud-walk') || document.getElementById('walk-toggle');
+    if (walkToggle) walkToggle.onclick = function () {
+      if (typeof window.toggleWalkMode === 'function') window.toggleWalkMode();
+      else toggleWalkMode();
+    };
   }
 
   function tickClock() {
@@ -1540,6 +1554,7 @@
   }
 
   engine.runRenderLoop(function () {
+    updateOrbitKeyboardPan();
     if (state.selectedLight != null && !document.getElementById('device-pop').hidden) {
       renderDevicePop(state.selectedLight);
     }
@@ -1550,16 +1565,27 @@
     document.getElementById('hud-fps').textContent = Math.round(engine.getFps()) + ' FPS';
   }, 500);
 
-  window.addEventListener('resize', function () {
-    engine.resize();
-  });
+  window.addEventListener('resize', resizeScene);
+
+  window.BabylonApp = {
+    engine: engine,
+    scene: scene,
+    rebuildScene: rebuildScene,
+    updateLightVisual: updateLightVisual,
+    focusLight: focusLight,
+    fitCamera: fitCamera,
+    toggleWalkMode: toggleWalkMode,
+    setStyle: setStyle
+  };
 
   bindUI();
   tickClock();
   setInterval(tickClock, 1000);
   tickWeather();
   buildMaterials();
-  loadConfig().catch(function (error) {
-    showToast('加载失败: ' + error.message, 4000);
-  });
+  rebuildScene();
+  resizeScene();
+  if (window.requestAnimationFrame) window.requestAnimationFrame(resizeScene);
+  setTimeout(resizeScene, 80);
+  updateHud();
 })();
